@@ -1,0 +1,2485 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TL Shift Availability & Coaching Activity Tracker</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- FontAwesome -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <!-- SheetJS (xlsx) -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <!-- Firebase App & Firestore Compat SDKs -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+
+  <style>
+    .custom-scrollbar::-webkit-scrollbar { height: 8px; width: 8px; }
+    .custom-scrollbar::-webkit-scrollbar-track { background: #f1f5f9; }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+    .matrix-table { border-collapse: separate; border-spacing: 0; }
+    .matrix-table th, .matrix-table td { border-right: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0; }
+    .sticky-col { position: sticky; left: 0; z-index: 20; background-color: #ffffff; }
+    .sticky-header { position: sticky; top: 0; z-index: 30; background-color: #f8fafc; }
+    .sticky-corner { position: sticky; top: 0; left: 0; z-index: 40; background-color: #f1f5f9; }
+
+    .status-available   { background-color: #10b981; color: #ffffff; }
+    .status-coaching    { background-color: #8b5cf6; color: #ffffff; }
+    .status-pmc         { background-color: #ec4899; color: #ffffff; }
+    .status-tmh         { background-color: #0284c7; color: #ffffff; }
+    .status-lunch       { background-color: #f59e0b; color: #ffffff; }
+    .status-unavailable { background-color: #ef4444; color: #ffffff; }
+    
+    /* Standard pointer for flexible shift plotting - NO stop/not-allowed cursor */
+    .status-off-shift {
+      background-color: #f8fafc;
+      background-image: repeating-linear-gradient(45deg, #f1f5f9, #f1f5f9 6px, #f8fafc 6px, #f8fafc 12px);
+      cursor: pointer;
+    }
+    .status-in-shift-blank { 
+      background-color: #ffffff; 
+      box-shadow: inset 0 0 0 1px #e2e8f0; 
+      cursor: pointer;
+    }
+
+    .cell-interactive { cursor: pointer; }
+    .cell-locked { cursor: default !important; opacity: 0.95; }
+
+    .cell-selected { 
+      outline: 2px solid #4f46e5 !important; 
+      outline-offset: -2px; 
+      box-shadow: inset 0 0 0 2px #6366f1 !important; 
+    }
+    .drag-over { 
+      outline: 2px dashed #3b82f6 !important; 
+      background-color: #dbeafe !important; 
+    }
+
+    .tooltip-text {
+      visibility: hidden; 
+      position: absolute; 
+      z-index: 50; 
+      bottom: 125%; 
+      left: 50%; 
+      transform: translateX(-50%);
+      background-color: #1e293b; 
+      color: #fff; 
+      text-align: center; 
+      padding: 4px 8px; 
+      border-radius: 4px;
+      font-size: 11px; 
+      white-space: nowrap; 
+      opacity: 0; 
+      transition: opacity 0.2s;
+      pointer-events: none;
+    }
+    .has-tooltip:hover .tooltip-text { visibility: visible; opacity: 1; }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 font-sans min-h-screen flex flex-col">
+
+  <!-- NON-BLOCKING TOAST NOTIFICATION BANNER -->
+  <div id="toastBanner" class="fixed top-4 right-4 z-[100] max-w-md hidden transition-all duration-200">
+    <div id="toastContent" class="flex items-center space-x-2.5 px-4 py-3 rounded-xl shadow-xl border text-xs font-semibold bg-slate-900 text-white border-slate-700">
+      <i id="toastIcon" class="fa-solid fa-circle-info text-indigo-400 text-sm"></i>
+      <span id="toastMessage">Notification</span>
+    </div>
+  </div>
+
+  <!-- CUSTOM IN-APP CONFIRMATION MODAL -->
+  <div id="confirmDialogModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[90] items-center justify-center hidden p-4">
+    <div class="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-5 border border-slate-200 text-xs">
+      <h3 class="text-sm font-bold text-slate-900 mb-1.5 flex items-center">
+        <i class="fa-solid fa-triangle-exclamation text-amber-500 mr-2"></i> Confirm Action
+      </h3>
+      <p id="confirmDialogMessage" class="text-slate-600 mb-4 leading-relaxed">Are you sure?</p>
+      <div class="flex justify-end space-x-2 pt-2 border-t border-slate-100">
+        <button id="btnConfirmDialogCancel" class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-700 font-semibold">Cancel</button>
+        <button id="btnConfirmDialogOk" class="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 rounded-lg text-white font-bold shadow">Confirm</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- TOP HEADER -->
+  <header class="bg-white border-b border-slate-200 sticky top-0 z-40 shadow-sm">
+    <div class="max-w-[1700px] mx-auto px-4 py-2.5 flex flex-wrap items-center justify-between gap-3">
+      
+      <!-- Logo & Title -->
+      <div class="flex items-center space-x-3">
+        <div class="w-9 h-9 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-bold text-lg shadow-md shadow-indigo-100">
+          <i class="fa-solid fa-calendar-check"></i>
+        </div>
+        <div>
+          <div class="flex items-center space-x-2">
+            <h1 class="text-base font-extrabold text-slate-900 tracking-tight">TL Availability & Coaching Tracker</h1>
+            <span id="activeTzBadge" class="bg-amber-100 text-amber-800 text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-300">
+              EST
+            </span>
+            <span id="firebaseSyncBadge" class="inline-flex items-center space-x-1 bg-emerald-50 text-emerald-700 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-200" title="Connected to Firebase Firestore">
+              <span id="firebaseSyncDot" class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+              <span id="firebaseSyncText">Live Sync</span>
+            </span>
+          </div>
+          <p class="text-[11px] text-slate-500 font-medium">30-min granular shift planning, 1-on-1 coaching & capacity tracker</p>
+        </div>
+      </div>
+
+      <!-- Controls: TL Selector, TZ, Horizon, Admin -->
+      <div class="flex flex-wrap items-center gap-2 text-xs">
+        
+        <!-- Supervisor Selector -->
+        <div class="flex items-center space-x-1.5 bg-slate-100 px-2.5 py-1.5 rounded-lg border border-slate-200">
+          <i class="fa-solid fa-user-tie text-slate-500"></i>
+          <span class="font-semibold text-slate-600">Supervisor:</span>
+          <select id="tlSelector" class="bg-white border border-slate-300 rounded px-2 py-1 text-slate-800 font-medium focus:ring-1 focus:ring-indigo-500 focus:outline-none min-w-[180px]"></select>
+        </div>
+
+        <!-- Timezone Selector (Per-TL) -->
+        <div class="flex items-center space-x-1 bg-slate-100 px-2.5 py-1.5 rounded-lg border border-slate-200">
+          <span class="font-semibold text-slate-600">TZ:</span>
+          <select id="tzSelector" class="bg-white border border-slate-300 rounded px-1.5 py-1 text-slate-800 font-bold focus:ring-1 focus:ring-indigo-500 focus:outline-none">
+            <option value="EST">EST (UTC-5)</option>
+            <option value="EDT">EDT (UTC-4)</option>
+            <option value="GMT">GMT (UTC+0)</option>
+            <option value="BST">BST (UTC+1)</option>
+          </select>
+        </div>
+
+        <!-- View Scope (Horizon) -->
+        <div class="flex items-center space-x-1 bg-slate-100 px-2.5 py-1.5 rounded-lg border border-slate-200">
+          <span class="font-semibold text-slate-600">Scope:</span>
+          <select id="viewScopeSelector" class="bg-white border border-slate-300 rounded px-1.5 py-1 text-slate-800 font-medium focus:ring-1 focus:ring-indigo-500 focus:outline-none">
+            <option value="1">1 Week</option>
+            <option value="2">2 Weeks</option>
+            <option value="3">3 Weeks</option>
+            <option value="4">4 Weeks</option>
+            <option value="month">Monthly View</option>
+          </select>
+        </div>
+
+        <!-- Date Navigator -->
+        <div class="flex items-center space-x-1 bg-white border border-slate-200 rounded-lg p-0.5">
+          <button id="btnPrevWeek" type="button" class="px-2 py-1 hover:bg-slate-100 rounded text-slate-600" title="Previous Week">
+            <i class="fa-solid fa-chevron-left text-[11px]"></i>
+          </button>
+          <input type="date" id="datePicker" class="text-xs font-semibold text-slate-700 border-0 focus:ring-0 px-1 py-0.5 cursor-pointer">
+          <button id="btnNextWeek" type="button" class="px-2 py-1 hover:bg-slate-100 rounded text-slate-600" title="Next Week">
+            <i class="fa-solid fa-chevron-right text-[11px]"></i>
+          </button>
+          <button id="btnToday" type="button" class="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded text-[11px]">
+            Today
+          </button>
+        </div>
+
+        <!-- Admin & Guide Buttons -->
+        <div class="flex items-center space-x-1.5 ml-1">
+          <button id="btnGuide" type="button" class="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-semibold flex items-center space-x-1 border border-slate-200">
+            <i class="fa-solid fa-circle-question text-indigo-600"></i>
+            <span>Guide</span>
+          </button>
+
+          <button id="btnManageTLs" type="button" class="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-semibold flex items-center space-x-1 border border-slate-200">
+            <i class="fa-solid fa-users-gear text-slate-600"></i>
+            <span>Manage TLs</span>
+          </button>
+
+          <button id="btnAdminLock" type="button" class="px-2.5 py-1.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg font-semibold flex items-center space-x-1 hover:bg-emerald-100">
+            <i class="fa-solid fa-lock-open text-emerald-600"></i>
+            <span id="adminLockStatus">Unlocked</span>
+          </button>
+
+          <button id="btnAutoLock" type="button" class="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-semibold flex items-center space-x-1 border border-slate-200">
+            <i class="fa-solid fa-calendar-day text-amber-600"></i>
+            <span>Auto-Lock</span>
+          </button>
+
+          <button id="btnShareView" type="button" class="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg font-bold flex items-center space-x-1.5 border border-indigo-200 shadow-sm transition-colors" title="Share current supervisor schedule view">
+            <i class="fa-solid fa-share-nodes text-indigo-600"></i>
+            <span>Share View</span>
+          </button>
+
+          <button id="btnExportCSV" type="button" disabled class="px-3 py-1.5 bg-slate-200 text-slate-400 rounded-lg font-bold flex items-center space-x-1.5 cursor-not-allowed border border-slate-300">
+            <i class="fa-solid fa-file-arrow-down"></i>
+            <span>Export CSV</span>
+            <span id="exportLockBadge" class="text-[9px] bg-slate-300 text-slate-600 px-1.5 py-0.2 rounded font-normal">Locked Only</span>
+          </button>
+        </div>
+
+      </div>
+    </div>
+  </header>
+
+  <!-- SECONDARY BANNER & SUPERVISOR PROFILE INFO -->
+  <section class="bg-white border-b border-slate-200 px-4 py-2">
+    <div class="max-w-[1700px] mx-auto flex flex-wrap items-center justify-between gap-3 text-xs">
+      
+      <!-- Supervisor Profile Details -->
+      <div id="profileDetails" class="flex flex-wrap items-center gap-2">
+        <span class="font-bold text-slate-900 text-sm" id="profName">Select a Team Leader</span>
+        <span class="bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded border border-indigo-200 font-medium" id="profTeam">Team: -</span>
+        <span class="bg-slate-100 text-slate-700 px-2 py-0.5 rounded border border-slate-200" id="profShift">Shift: -</span>
+        <span class="bg-rose-50 text-rose-700 px-2 py-0.5 rounded border border-rose-200" id="profOff">Days Off: -</span>
+        <span class="bg-purple-50 text-purple-700 px-2 py-0.5 rounded border border-purple-200" id="profTz">TZ: EST</span>
+      </div>
+
+      <!-- Quick Automation Buttons -->
+      <div id="automationButtonsGroup" class="flex items-center space-x-2">
+        <button id="btnAutoFillShift" type="button" class="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded shadow-sm flex items-center space-x-1 transition-opacity">
+          <i class="fa-solid fa-wand-magic-sparkles text-[11px]"></i>
+          <span>Auto-Fill Shift</span>
+        </button>
+        <button id="btnInsertLunch" type="button" class="px-2.5 py-1 bg-amber-500 hover:bg-amber-600 text-white font-semibold rounded shadow-sm flex items-center space-x-1 transition-opacity">
+          <i class="fa-solid fa-utensils text-[11px]"></i>
+          <span>Insert Lunch</span>
+        </button>
+        <button id="btnFillUnavailable" type="button" class="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 text-white font-semibold rounded shadow-sm flex items-center space-x-1 transition-opacity">
+          <i class="fa-solid fa-ban text-[11px]"></i>
+          <span>Fill as Unavailable</span>
+        </button>
+        <button id="btnClearDates" type="button" class="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-600 font-semibold rounded border border-slate-200 flex items-center space-x-1 transition-opacity">
+          <i class="fa-solid fa-trash-can text-[11px]"></i>
+          <span>Clear Dates</span>
+        </button>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- LIVE SUMMARY COUNTERS RIBBON -->
+  <div class="bg-slate-100 border-b border-slate-200 px-4 py-1.5">
+    <div class="max-w-[1700px] mx-auto flex flex-wrap items-center justify-between text-xs text-slate-600 gap-2">
+      <div class="flex items-center space-x-4">
+        <span class="font-bold text-slate-700">Plotted Hours:</span>
+        <span class="flex items-center"><span class="w-2.5 h-2.5 rounded-full bg-emerald-500 mr-1.5"></span> Available: <strong id="cntAvailable" class="ml-1 text-slate-800">0h</strong></span>
+        <span class="flex items-center"><span class="w-2.5 h-2.5 rounded-full bg-purple-500 mr-1.5"></span> Coaching: <strong id="cntCoaching" class="ml-1 text-slate-800">0h</strong></span>
+        <span class="flex items-center"><span class="w-2.5 h-2.5 rounded-full bg-pink-500 mr-1.5"></span> PMC: <strong id="cntPmc" class="ml-1 text-slate-800">0h</strong></span>
+        <span class="flex items-center"><span class="w-2.5 h-2.5 rounded-full bg-sky-500 mr-1.5"></span> TMH: <strong id="cntTmh" class="ml-1 text-slate-800">0h</strong></span>
+        <span class="flex items-center"><span class="w-2.5 h-2.5 rounded-full bg-amber-500 mr-1.5"></span> Lunch: <strong id="cntLunch" class="ml-1 text-slate-800">0h</strong></span>
+        <span class="flex items-center"><span class="w-2.5 h-2.5 rounded-full bg-rose-500 mr-1.5"></span> Unavailable: <strong id="cntUnavailable" class="ml-1 text-slate-800">0h</strong></span>
+      </div>
+      <div class="text-[11px] text-slate-500 italic">
+        *Tip: Each supervisor's schedule is isolated—editing or updating the roster never affects other Team Leaders.
+      </div>
+    </div>
+  </div>
+
+  <!-- MAIN SCHEDULE MATRIX CONTAINER -->
+  <main class="flex-1 max-w-[1700px] w-full mx-auto p-4 overflow-hidden flex flex-col">
+    <div id="gridScrollContainer" class="flex-1 bg-white rounded-xl shadow border border-slate-200 overflow-auto custom-scrollbar relative max-h-[calc(100vh-250px)]">
+      <table id="scheduleTable" class="matrix-table w-full text-xs text-center border-separate border-spacing-0">
+        <!-- Rendered by JavaScript -->
+      </table>
+    </div>
+  </main>
+
+  <!-- FLOATING BULK UPDATE ACTION TOOLBAR -->
+  <div id="bulkUpdateToolbar" class="fixed bottom-6 left-1/2 transform -translate-x-1/2 bg-slate-900 text-white px-5 py-3 rounded-2xl shadow-2xl z-50 flex items-center space-x-4 border border-slate-700 hidden transition-all">
+    <div class="flex items-center space-x-2">
+      <span class="w-6 h-6 rounded-full bg-indigo-500 text-white flex items-center justify-center font-bold text-xs" id="bulkCountLabel">0</span>
+      <span class="text-xs font-semibold text-slate-200">Slots Selected</span>
+    </div>
+    
+    <div class="h-5 w-px bg-slate-700"></div>
+
+    <div class="flex items-center space-x-2">
+      <label class="text-xs text-slate-300 font-medium">Status:</label>
+      <select id="bulkStatusSelect" class="bg-slate-800 text-white text-xs rounded border border-slate-600 px-2.5 py-1 focus:ring-1 focus:ring-indigo-400 focus:outline-none">
+        <option value="Available">Available (Open)</option>
+        <option value="Coaching">Coaching (1-on-1)</option>
+        <option value="PMC">PMC (Performance)</option>
+        <option value="TMH">TMH (Team Huddle)</option>
+        <option value="Lunch">Lunch</option>
+        <option value="Unavailable">Unavailable</option>
+        <option value="Blank">Clear / Blank</option>
+      </select>
+    </div>
+
+    <div class="flex items-center space-x-2">
+      <label class="text-xs text-slate-300 font-medium">Agent's Name:</label>
+      <input type="text" id="bulkAgentInput" placeholder="Agent name" class="bg-slate-800 text-white text-xs rounded border border-slate-600 px-2.5 py-1 w-44 placeholder-slate-500 focus:ring-1 focus:ring-indigo-400 focus:outline-none">
+    </div>
+
+    <button id="btnBulkApply" type="button" class="px-3.5 py-1 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded-lg text-xs shadow">
+      Save Changes
+    </button>
+    <button id="btnBulkCancel" type="button" class="px-2.5 py-1 bg-slate-700 hover:bg-slate-600 text-slate-300 font-semibold rounded-lg text-xs">
+      Cancel
+    </button>
+  </div>
+
+  <!-- MODAL: MANAGE TLS (WITH EDIT & ADD OPTIONS) -->
+  <div id="manageTlsModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 items-center justify-center hidden p-4">
+    <div class="bg-white rounded-2xl shadow-2xl max-w-4xl w-full p-6 border border-slate-200 max-h-[90vh] flex flex-col">
+      <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+        <div>
+          <h3 class="text-base font-bold text-slate-900 flex items-center">
+            <i class="fa-solid fa-users-gear text-indigo-600 mr-2"></i> Manage Roster (Max 100 TLs)
+          </h3>
+          <p class="text-[11px] text-slate-500 mt-0.5">Add, edit, or import supervisor details without affecting other Team Leaders' schedules</p>
+        </div>
+        <button id="btnCloseManageModal" type="button" class="text-slate-400 hover:text-slate-600 text-lg">✕</button>
+      </div>
+
+      <!-- Excel / CSV Upload Area -->
+      <div class="bg-slate-50 p-3.5 rounded-xl border border-dashed border-slate-300 my-3 flex flex-wrap items-center justify-between gap-3 text-xs">
+        <div>
+          <span class="font-bold text-slate-800">Upload Roster Sheet (.xlsx, .xls, .csv):</span>
+          <p class="text-slate-500 text-[11px]">Supports auto-detection of Name, Team, Shift, Days Off, and Timezone headers.</p>
+        </div>
+        <div class="flex items-center space-x-2">
+          <input type="file" id="fileUploadRoster" accept=".xlsx, .xls, .csv" class="text-xs text-slate-600 file:mr-2 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 cursor-pointer">
+          <button id="btnAppendUpload" type="button" class="px-2.5 py-1.5 bg-indigo-600 text-white font-semibold rounded-lg hover:bg-indigo-700">Add / Append</button>
+          <button id="btnReplaceUpload" type="button" class="px-2.5 py-1.5 bg-rose-600 text-white font-semibold rounded-lg hover:bg-rose-700">Replace Roster</button>
+        </div>
+      </div>
+
+      <!-- Add / Edit Single TL Form -->
+      <div id="tlFormContainer" class="bg-slate-50 p-3 rounded-xl border border-slate-200 mb-3 text-xs">
+        <div class="flex items-center justify-between mb-2">
+          <span class="font-bold text-slate-800 flex items-center" id="formHeaderTitle">
+            <i class="fa-solid fa-user-plus text-indigo-600 mr-1.5"></i> Add New Supervisor
+          </span>
+          <span id="editModeNotice" class="text-[11px] bg-amber-100 text-amber-800 px-2 py-0.5 rounded font-bold hidden">
+            Editing Mode Active
+          </span>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-5 gap-2 items-end">
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">TL Name *</label>
+            <input type="text" id="inputTlName" placeholder="e.g. Maria Santos" class="w-full border border-slate-300 rounded px-2 py-1 bg-white">
+          </div>
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Team Name</label>
+            <input type="text" id="inputTlTeam" placeholder="e.g. Inbound Care" class="w-full border border-slate-300 rounded px-2 py-1 bg-white">
+          </div>
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Shift Hours *</label>
+            <input type="text" id="inputTlShift" placeholder="e.g. 9:00 AM - 6:00 PM" class="w-full border border-slate-300 rounded px-2 py-1 bg-white">
+          </div>
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Days Off (e.g. Sat, Sun)</label>
+            <input type="text" id="inputTlOff" placeholder="e.g. Sat, Sun" class="w-full border border-slate-300 rounded px-2 py-1 bg-white">
+          </div>
+          <div class="flex items-center space-x-1">
+            <div class="flex-1">
+              <label class="block font-semibold text-slate-700 mb-1">Timezone</label>
+              <select id="inputTlTz" class="w-full border border-slate-300 rounded px-2 py-1 font-bold bg-white">
+                <option value="EST">EST</option>
+                <option value="EDT">EDT</option>
+                <option value="GMT">GMT</option>
+                <option value="BST">BST</option>
+              </select>
+            </div>
+            <button id="btnSaveTlAction" type="button" class="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded h-[30px] self-end whitespace-nowrap shadow-sm">
+              Add TL
+            </button>
+            <button id="btnCancelTlEdit" type="button" class="px-2.5 py-1 bg-slate-300 hover:bg-slate-400 text-slate-700 font-semibold rounded h-[30px] self-end hidden">
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Existing TL Table with Edit and Delete options -->
+      <div class="flex-1 overflow-auto border border-slate-200 rounded-xl custom-scrollbar text-xs">
+        <table class="w-full text-left">
+          <thead class="bg-slate-100 font-bold text-slate-700 sticky top-0">
+            <tr>
+              <th class="p-2">Name</th>
+              <th class="p-2">Team</th>
+              <th class="p-2">Shift</th>
+              <th class="p-2">Days Off</th>
+              <th class="p-2">TZ</th>
+              <th class="p-2 text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="tlRosterTableBody" class="divide-y divide-slate-100 text-slate-700 bg-white"></tbody>
+        </table>
+      </div>
+
+      <div class="pt-3 border-t border-slate-200 flex justify-between items-center text-xs">
+        <span class="text-slate-500 font-medium" id="tlCountInfo">Total TLs: 0 / 100</span>
+        <div class="flex items-center space-x-3">
+          <button id="btnRestoreSampleTls" type="button" class="text-indigo-600 hover:text-indigo-800 font-semibold">Restore Sample TLs</button>
+          <button id="btnClearAllTls" type="button" class="text-rose-600 hover:text-rose-800 font-semibold">Clear Entire Roster</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: AUTO-FILL SHIFT -->
+  <div id="autoFillModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 items-center justify-center hidden p-4">
+    <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 border border-slate-200 text-xs">
+      <h3 class="text-base font-bold text-slate-900 mb-1 flex items-center">
+        <i class="fa-solid fa-wand-magic-sparkles text-emerald-600 mr-2"></i> Auto-Fill Shift Hours
+      </h3>
+      <p class="text-slate-500 mb-3">Mark your scheduled working hours as <span class="font-bold text-emerald-600">Available</span> across selected dates.</p>
+
+      <div class="space-y-3 mb-4">
+        <div>
+          <label class="block font-semibold text-slate-700 mb-1">Target Dates:</label>
+          <div class="flex items-center space-x-2 mb-2">
+            <button id="btnAfPresetWorking" type="button" class="px-2 py-1 bg-slate-100 hover:bg-slate-200 rounded font-semibold text-slate-700">Working Days</button>
+            <button id="btnAfPresetAll" type="button" class="px-2 py-1 bg-slate-100 hover:bg-slate-200 rounded font-semibold text-slate-700">All Visible</button>
+            <button id="btnAfPresetNone" type="button" class="px-2 py-1 bg-slate-100 hover:bg-slate-200 rounded font-semibold text-slate-700">None</button>
+          </div>
+          <div id="afDateList" class="max-h-36 overflow-y-auto border border-slate-200 rounded-lg p-2 space-y-1 custom-scrollbar"></div>
+        </div>
+
+        <div>
+          <label class="block font-semibold text-slate-700 mb-1">Fill Mode:</label>
+          <div class="space-y-1">
+            <label class="flex items-center space-x-2">
+              <input type="radio" name="afMode" value="blank" checked class="text-emerald-600">
+              <span>Only fill blank slots (Preserve existing coaching/lunch)</span>
+            </label>
+            <label class="flex items-center space-x-2">
+              <input type="radio" name="afMode" value="overwrite" class="text-emerald-600">
+              <span>Overwrite entire shift hours</span>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div class="flex justify-end space-x-2 pt-3 border-t border-slate-200">
+        <button id="btnCloseAfModal" type="button" class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-700 font-semibold">Cancel</button>
+        <button id="btnConfirmAutoFill" type="button" class="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 rounded-lg text-white font-bold shadow">Apply Auto-Fill</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: INSERT LUNCH -->
+  <div id="insertLunchModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 items-center justify-center hidden p-4">
+    <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 border border-slate-200 text-xs">
+      <h3 class="text-base font-bold text-slate-900 mb-1 flex items-center">
+        <i class="fa-solid fa-utensils text-amber-500 mr-2"></i> Insert Lunch Break
+      </h3>
+      <p class="text-slate-500 mb-3">Batch-insert scheduled meal break across working days.</p>
+
+      <div class="space-y-3 mb-4">
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Start Time:</label>
+            <select id="lunchStartTime" class="w-full border border-slate-300 rounded px-2 py-1 font-medium"></select>
+          </div>
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Duration:</label>
+            <select id="lunchDuration" class="w-full border border-slate-300 rounded px-2 py-1 font-medium">
+              <option value="30">30 minutes (1 slot)</option>
+              <option value="60" selected>1 hour (2 slots)</option>
+              <option value="90">1.5 hours (3 slots)</option>
+              <option value="120">2 hours (4 slots)</option>
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <label class="block font-semibold text-slate-700 mb-1">Target Dates:</label>
+          <div id="lunchDateList" class="max-h-36 overflow-y-auto border border-slate-200 rounded-lg p-2 space-y-1 custom-scrollbar"></div>
+        </div>
+      </div>
+
+      <div class="flex justify-end space-x-2 pt-3 border-t border-slate-200">
+        <button id="btnCloseLunchModal" type="button" class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-700 font-semibold">Cancel</button>
+        <button id="btnConfirmLunch" type="button" class="px-4 py-1.5 bg-amber-500 hover:bg-amber-600 rounded-lg text-white font-bold shadow">Insert Lunch</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: FILL AS UNAVAILABLE -->
+  <div id="fillUnavailableModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 items-center justify-center hidden p-4">
+    <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 border border-slate-200 text-xs">
+      <h3 class="text-base font-bold text-slate-900 mb-1 flex items-center">
+        <i class="fa-solid fa-ban text-rose-600 mr-2"></i> Fill Shift as Unavailable
+      </h3>
+      <p class="text-slate-500 mb-3">Mark working hours as <span class="font-bold text-rose-600">Unavailable</span> for reverse capacity plotting.</p>
+
+      <div class="space-y-3 mb-4">
+        <div>
+          <label class="block font-semibold text-slate-700 mb-1">Target Dates:</label>
+          <div id="unavailDateList" class="max-h-36 overflow-y-auto border border-slate-200 rounded-lg p-2 space-y-1 custom-scrollbar"></div>
+        </div>
+        <div>
+          <label class="block font-semibold text-slate-700 mb-1">Mode:</label>
+          <div class="space-y-1">
+            <label class="flex items-center space-x-2">
+              <input type="radio" name="unavailMode" value="blank" checked class="text-rose-600">
+              <span>Only fill blank slots (Preserve coaching/lunch)</span>
+            </label>
+            <label class="flex items-center space-x-2">
+              <input type="radio" name="unavailMode" value="overwrite" class="text-rose-600">
+              <span>Overwrite all shift hours</span>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div class="flex justify-end space-x-2 pt-3 border-t border-slate-200">
+        <button id="btnCloseUnavailModal" type="button" class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-700 font-semibold">Cancel</button>
+        <button id="btnConfirmUnavailable" type="button" class="px-4 py-1.5 bg-rose-600 hover:bg-rose-700 rounded-lg text-white font-bold shadow">Apply</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: CLEAR DATES -->
+  <div id="clearDatesModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 items-center justify-center hidden p-4">
+    <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 border border-slate-200 text-xs">
+      <h3 class="text-base font-bold text-slate-900 mb-1 flex items-center">
+        <i class="fa-solid fa-trash-can text-slate-600 mr-2"></i> Clear Plotted Dates
+      </h3>
+      <p class="text-slate-500 mb-3">Reset plotted activity slots back to blank for chosen dates.</p>
+
+      <div class="space-y-3 mb-4">
+        <label class="block font-semibold text-slate-700 mb-1">Select Dates to Clear:</label>
+        <div id="clearDateList" class="max-h-36 overflow-y-auto border border-slate-200 rounded-lg p-2 space-y-1 custom-scrollbar"></div>
+      </div>
+
+      <div class="flex justify-end space-x-2 pt-3 border-t border-slate-200">
+        <button id="btnCloseClearModal" type="button" class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-700 font-semibold">Cancel</button>
+        <button id="btnConfirmClear" type="button" class="px-4 py-1.5 bg-rose-600 hover:bg-rose-700 rounded-lg text-white font-bold shadow">Clear Slots</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: ADMIN LOCK & PASSWORD -->
+  <div id="adminLockModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 items-center justify-center hidden p-4">
+    <div class="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 border border-slate-200 text-xs">
+      <h3 class="text-base font-bold text-slate-900 mb-1 flex items-center">
+        <i class="fa-solid fa-shield-halved text-indigo-600 mr-2"></i> Admin Security Gate
+      </h3>
+      <p class="text-slate-500 mb-3">Enter the admin password to toggle schedule lock state.</p>
+
+      <div class="mb-4">
+        <label class="block font-semibold text-slate-700 mb-1">Admin Password:</label>
+        <input type="password" id="inputAdminPassword" placeholder="Enter admin password" class="w-full border border-slate-300 rounded px-2.5 py-1.5 text-sm">
+        <p class="text-[10px] text-slate-400 mt-1 italic">Enter the system admin password.</p>
+      </div>
+
+      <div class="flex justify-end space-x-2 pt-3 border-t border-slate-200">
+        <button id="btnCloseAdminModal" type="button" class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-700 font-semibold">Cancel</button>
+        <button id="btnSubmitAdminPassword" type="button" class="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 rounded-lg text-white font-bold shadow">Authenticate</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: AUTO-LOCK CUTOFF RULES -->
+  <div id="autoLockRulesModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 items-center justify-center hidden p-4">
+    <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 border border-slate-200 text-xs">
+      <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+        <h3 class="text-base font-bold text-slate-900 flex items-center">
+          <i class="fa-solid fa-calendar-day text-amber-600 mr-2"></i> Auto-Lock Cutoff Rules
+        </h3>
+        <button id="btnCloseAutoLockModal" type="button" class="text-slate-400 hover:text-slate-600 text-lg">✕</button>
+      </div>
+
+      <div class="space-y-4 my-4">
+        <div class="bg-amber-50 border border-amber-200 rounded-xl p-3">
+          <label class="flex items-center space-x-2 font-bold text-amber-900 mb-1">
+            <input type="checkbox" id="chkEnableCutoff" class="text-amber-600 rounded">
+            <span>Enable Cut-off Date Lock Rule</span>
+          </label>
+          <p class="text-[11px] text-amber-700 mb-2">Automatically locks all dates on or before this cutoff date:</p>
+          <input type="date" id="cutoffDateInput" class="border border-amber-300 rounded px-2 py-1 bg-white text-xs font-semibold text-slate-800">
+        </div>
+
+        <div>
+          <label class="block font-bold text-slate-800 mb-1">Specific Calendar Dates to Lock:</label>
+          <div class="flex space-x-2 mb-2">
+            <input type="date" id="inputSpecificLockDate" class="border border-slate-300 rounded px-2 py-1 text-xs">
+            <button id="btnAddLockDate" type="button" class="px-3 py-1 bg-indigo-600 text-white rounded font-bold hover:bg-indigo-700">Add Date</button>
+          </div>
+          <div id="lockedDatesTagList" class="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto p-2 border border-slate-200 rounded-lg custom-scrollbar"></div>
+        </div>
+      </div>
+
+      <div class="flex justify-end space-x-2 pt-3 border-t border-slate-200">
+        <button id="btnSaveAutoLockRules" type="button" class="px-4 py-1.5 bg-slate-900 hover:bg-black rounded-lg text-white font-bold shadow">Save & Apply Rules</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: LOCKED MULTI-TL CSV EXPORT -->
+  <div id="exportModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 items-center justify-center hidden p-4">
+    <div class="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6 border border-slate-200 text-xs">
+      <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+        <div>
+          <h3 class="text-base font-bold text-slate-900 flex items-center">
+            <i class="fa-solid fa-file-arrow-down text-emerald-600 mr-2"></i> WFM Multi-TL CSV Export
+          </h3>
+          <p class="text-[11px] text-slate-500 mt-0.5">Exports strictly: Team, Date, Time Slot, Status, Agent's Name</p>
+        </div>
+        <button id="btnCloseExportModal" type="button" class="text-slate-400 hover:text-slate-600 text-lg">✕</button>
+      </div>
+
+      <div class="my-4 space-y-3">
+        <div class="flex items-center justify-between">
+          <span class="font-bold text-slate-700">Select Supervisors to Include:</span>
+          <div class="flex space-x-1.5">
+            <button id="btnExportSelectActive" type="button" class="px-2 py-0.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-800 rounded font-bold text-[10px]">Only with Activity</button>
+            <button id="btnExportSelectAll" type="button" class="px-2 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded font-bold text-[10px]">All</button>
+            <button id="btnExportSelectNone" type="button" class="px-2 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded font-bold text-[10px]">None</button>
+          </div>
+        </div>
+
+        <div id="exportTlCheckList" class="max-h-56 overflow-y-auto border border-slate-200 rounded-xl p-2 space-y-1.5 custom-scrollbar"></div>
+
+        <div class="bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-[11px] text-slate-600 space-y-1">
+          <div class="font-semibold text-slate-800 flex items-center">
+            <i class="fa-solid fa-circle-check text-emerald-600 mr-1.5"></i> Export Constraints Active:
+          </div>
+          <div>• Strictly includes offline available activities: <strong>Available, Coaching, PMC, TMH</strong>.</div>
+          <div>• Excludes unplotted blank shift hours, days off, and lunch breaks.</div>
+          <div>• Encoded with <strong>UTF-8 BOM</strong> for flawless opening in Microsoft Excel.</div>
+        </div>
+      </div>
+
+      <div class="flex justify-end space-x-2 pt-3 border-t border-slate-200">
+        <button id="btnCloseExportModalBtn" type="button" class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-700 font-semibold">Cancel</button>
+        <button id="btnDownloadCsvConfirmed" type="button" class="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 rounded-lg text-white font-bold shadow flex items-center space-x-1.5">
+          <i class="fa-solid fa-download"></i>
+          <span>Download CSV</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: SHARE VIEW -->
+  <div id="shareViewModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 items-center justify-center hidden p-4">
+    <div class="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6 border border-slate-200 text-xs">
+      <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+        <div>
+          <h3 class="text-base font-bold text-slate-900 flex items-center">
+            <i class="fa-solid fa-share-nodes text-indigo-600 mr-2"></i> Share Current Schedule View
+          </h3>
+          <p class="text-[11px] text-slate-500 mt-0.5">Generate a direct link to open this exact supervisor, date, and horizon</p>
+        </div>
+        <button id="btnCloseShareModal" type="button" class="text-slate-400 hover:text-slate-600 text-lg">✕</button>
+      </div>
+
+      <div class="my-4 space-y-4">
+        <div class="bg-slate-50 border border-slate-200 rounded-xl p-3 flex flex-wrap items-center justify-between gap-2 text-[11px]">
+          <div>
+            <span class="text-slate-400 block text-[10px]">Active Supervisor:</span>
+            <strong id="shareModalTlName" class="text-slate-800 text-xs">-</strong>
+          </div>
+          <div>
+            <span class="text-slate-400 block text-[10px]">Anchor Week:</span>
+            <strong id="shareModalDate" class="text-slate-800 text-xs">-</strong>
+          </div>
+          <div>
+            <span class="text-slate-400 block text-[10px]">Scope / Horizon:</span>
+            <strong id="shareModalScope" class="text-slate-800 text-xs">-</strong>
+          </div>
+          <div>
+            <span class="text-slate-400 block text-[10px]">Timezone:</span>
+            <strong id="shareModalTz" class="text-indigo-600 font-bold text-xs">-</strong>
+          </div>
+        </div>
+
+        <div>
+          <label class="block font-bold text-slate-700 mb-1">Direct Web Link:</label>
+          <div class="flex items-center space-x-1.5">
+            <input type="text" id="shareUrlInput" readonly class="flex-1 bg-slate-100 border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-700 select-all font-mono focus:outline-none">
+            <button id="btnCopyShareUrl" type="button" class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg whitespace-nowrap shadow-sm flex items-center space-x-1">
+              <i class="fa-solid fa-copy text-[11px]"></i>
+              <span id="copyShareBtnText">Copy Link</span>
+            </button>
+          </div>
+          <p class="text-[10px] text-slate-400 mt-1">Anyone opening this link will immediately load into this supervisor and calendar period.</p>
+        </div>
+
+        <div>
+          <label class="block font-bold text-slate-700 mb-1">Excel Formula (for Workbook Hubs):</label>
+          <div class="flex items-center space-x-1.5">
+            <input type="text" id="shareExcelFormulaInput" readonly class="flex-1 bg-slate-100 border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-700 select-all font-mono focus:outline-none">
+            <button id="btnCopyExcelFormula" type="button" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-900 text-white font-bold rounded-lg whitespace-nowrap shadow-sm flex items-center space-x-1">
+              <i class="fa-solid fa-copy text-[11px]"></i>
+              <span id="copyExcelBtnText">Copy Formula</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="flex justify-end space-x-2 pt-3 border-t border-slate-200">
+        <button id="btnCloseShareModalBtn" type="button" class="px-4 py-1.5 bg-slate-800 hover:bg-slate-900 text-white font-bold rounded-lg shadow-sm">
+          Done
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: HOW TO GUIDE -->
+  <div id="guideModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 items-center justify-center hidden p-4">
+    <div class="bg-white rounded-2xl shadow-2xl max-w-2xl w-full p-6 border border-slate-200 max-h-[88vh] flex flex-col text-xs">
+      <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+        <h3 class="text-base font-bold text-slate-900 flex items-center">
+          <i class="fa-solid fa-circle-question text-indigo-600 mr-2"></i> How to Use the Availability Tracker
+        </h3>
+        <button id="btnCloseGuideModal" type="button" class="text-slate-400 hover:text-slate-600 text-lg">✕</button>
+      </div>
+      <div class="overflow-y-auto space-y-3.5 my-4 pr-1 text-slate-600 custom-scrollbar">
+        <div class="bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+          <h4 class="font-bold text-slate-900 mb-1">1. Isolated Per-Supervisor Schedules</h4>
+          <p>Each Team Leader's schedule is stored independently. Working on one supervisor's view—or adding, editing, or deleting supervisors in <strong>Manage TLs</strong>—never affects or overwrites any other supervisor's plotted sessions.</p>
+        </div>
+        <div class="bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+          <h4 class="font-bold text-slate-900 mb-1">2. Fast Shift Plotting & Flexible Hours</h4>
+          <p>Click any cell to plot availability, coaching, or breaks regardless of off-shift patterns. Use <strong>Auto-Fill Shift</strong> to instantly fill scheduled shift hours with Available status, or <strong>Insert Lunch</strong> to batch-insert meal breaks across working days.</p>
+        </div>
+        <div class="bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+          <h4 class="font-bold text-slate-900 mb-1">3. Admin Security & Lock Protection</h4>
+          <p>When the schedule is locked by an Admin, all cells, automations, and dragging are completely disabled in read-only mode to prevent unintended changes.</p>
+        </div>
+      </div>
+      <div class="pt-3 border-t border-slate-200 flex justify-end">
+        <button id="btnDoneGuideModal" type="button" class="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-lg font-semibold shadow-sm">Got It</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- APPLICATION LOGIC (JavaScript) -->
+  <script>
+    (function() {
+      // Isolated Per-TL Storage Keys
+      const STORAGE_KEY_ROSTER = 'tl_tracker_roster_v5';
+      const STORAGE_KEY_SCHED_PREFIX = 'tl_tracker_sched_v5_';
+      const STORAGE_KEY_LOCK = 'tl_tracker_lock_v5';
+      const STORAGE_KEY_RULES = 'tl_tracker_autolock_rules_v5';
+
+      // Legacy keys for automatic one-time migration
+      const LEGACY_ROSTER_KEY = 'tl_tracker_roster_v4';
+      const LEGACY_SCHED_KEY = 'tl_tracker_schedule_v4';
+      const LEGACY_LOCK_KEY = 'tl_tracker_lock_v4';
+      const LEGACY_RULES_KEY = 'tl_tracker_autolock_rules_v4';
+
+      let adminPassword = 'gmscc';
+      let isScheduleLocked = false;
+      let autoLockRules = { cutoffEnabled: false, cutoffDate: '', lockedDates: [] };
+
+      const DEFAULT_SAMPLE_ROSTER = [
+        { id: 'tl_1', name: 'Maria Santos', team: 'Inbound Care', shift: '9:00 AM - 6:00 PM', daysOff: ['Saturday', 'Sunday'], timezone: 'EST' },
+        { id: 'tl_2', name: 'David Kim', team: 'VIP Support', shift: '2:00 PM - 11:00 PM', daysOff: ['Sunday', 'Monday'], timezone: 'EST' },
+        { id: 'tl_3', name: 'Sarah Connor', team: 'Escalations', shift: '10:00 PM - 7:00 AM', daysOff: ['Tuesday', 'Wednesday'], timezone: 'GMT' }
+      ];
+
+      let teamLeaders = [];
+      let activeTlId = null;
+      let editingTlId = null;
+      let activeViewScope = '1';
+      let baseAnchorDate = new Date().toISOString().split('T')[0];
+
+      // In-memory cache of per-TL schedules: { [tlId]: { "YYYY-MM-DD_slot": { status, agent } } }
+      let tlSchedulesMap = {};
+
+      let selectedCells = new Set();
+      let draggedCellData = null;
+
+      const TIME_SLOTS = [];
+      for (let i = 0; i < 48; i++) {
+        const hour = Math.floor(i / 2);
+        const min = (i % 2 === 0) ? '00' : '30';
+        const nextHour = Math.floor((i + 1) / 2);
+        const nextMin = ((i + 1) % 2 === 0) ? '00' : '30';
+        const format12 = (h, m) => {
+          const ampm = h >= 12 ? 'PM' : 'AM';
+          const h12 = h % 12 === 0 ? 12 : h % 12;
+          return `${h12}:${m} ${ampm}`;
+        };
+        TIME_SLOTS.push({ index: i, startHour: hour, startMin: parseInt(min, 10), label: `${format12(hour, min)} - ${format12(nextHour % 24, nextMin)}` });
+      }
+
+      const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+      // -------------------------------------------------------------
+      // NON-BLOCKING TOAST & CONFIRMATION DIALOGS
+      // -------------------------------------------------------------
+      let toastTimer = null;
+      function showToast(message, type = 'info') {
+        const banner = document.getElementById('toastBanner');
+        const content = document.getElementById('toastContent');
+        const icon = document.getElementById('toastIcon');
+        const msgEl = document.getElementById('toastMessage');
+        if (!banner || !msgEl) return;
+
+        msgEl.textContent = message;
+
+        if (type === 'error' || type === 'warning') {
+          content.className = 'flex items-center space-x-2.5 px-4 py-3 rounded-xl shadow-xl border text-xs font-semibold bg-rose-900 text-white border-rose-700';
+          icon.className = 'fa-solid fa-circle-exclamation text-rose-300 text-sm';
+        } else if (type === 'success') {
+          content.className = 'flex items-center space-x-2.5 px-4 py-3 rounded-xl shadow-xl border text-xs font-semibold bg-emerald-900 text-white border-emerald-700';
+          icon.className = 'fa-solid fa-circle-check text-emerald-300 text-sm';
+        } else {
+          content.className = 'flex items-center space-x-2.5 px-4 py-3 rounded-xl shadow-xl border text-xs font-semibold bg-slate-900 text-white border-slate-700';
+          icon.className = 'fa-solid fa-circle-info text-indigo-400 text-sm';
+        }
+
+        banner.classList.remove('hidden');
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => {
+          banner.classList.add('hidden');
+        }, 4200);
+      }
+
+      let pendingConfirmCallback = null;
+      function showConfirmDialog(message, onConfirm) {
+        document.getElementById('confirmDialogMessage').textContent = message;
+        pendingConfirmCallback = onConfirm;
+        showModal('confirmDialogModal');
+      }
+
+      // Reliable Modal Helpers
+      function showModal(id) {
+        const el = document.getElementById(id);
+        if (el) {
+          el.classList.remove('hidden');
+          el.style.display = 'flex';
+        }
+      }
+      function hideModal(id) {
+        const el = document.getElementById(id);
+        if (el) {
+          el.classList.add('hidden');
+          el.style.display = 'none';
+        }
+      }
+
+      // -------------------------------------------------------------
+      // DATE & SHIFT PARSING HELPERS
+      // -------------------------------------------------------------
+      function addDaysToIso(isoStr, numDays) {
+        const parts = isoStr.split('-').map(Number);
+        const d = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
+        d.setUTCDate(d.getUTCDate() + numDays);
+        return d.toISOString().split('T')[0];
+      }
+
+      function getDayOfWeekIndex(isoStr) {
+        const parts = isoStr.split('-').map(Number);
+        const d = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
+        return d.getUTCDay();
+      }
+
+      function getMondayOfIsoWeek(isoStr) {
+        const dayIdx = getDayOfWeekIndex(isoStr);
+        const diff = (dayIdx === 0 ? -6 : 1 - dayIdx);
+        return addDaysToIso(isoStr, diff);
+      }
+
+      function formatIsoDateNice(isoStr) {
+        const parts = isoStr.split('-').map(Number);
+        const d = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
+        const dayName = DAY_NAMES[d.getUTCDay()].substring(0, 3);
+        const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+        return `${dayName}, ${months[d.getUTCMonth()]} ${d.getUTCDate()}`;
+      }
+
+      function parseShiftHours(shiftStr) {
+        if (!shiftStr || typeof shiftStr !== 'string') return null;
+        const clean = shiftStr.trim();
+        const parts = clean.split(/[-–—to]+/i);
+        if (parts.length < 2) return null;
+
+        function parseSingleTime(str, fallbackAmpm) {
+          str = str.trim().toLowerCase();
+          const match = str.match(/(\d{1,2})(?::(\d{2}))?(?::\d{2})?\s*(am|pm)?/i);
+          if (!match) return null;
+
+          let h = parseInt(match[1], 10);
+          let m = match[2] ? parseInt(match[2], 10) : 0;
+          let ampm = match[3] ? match[3].toLowerCase() : fallbackAmpm;
+
+          if (!ampm && h <= 12) {
+            if (h >= 1 && h <= 6) ampm = 'pm';
+            else ampm = 'am';
+          }
+          if (ampm === 'pm' && h < 12) h += 12;
+          if (ampm === 'am' && h === 12) h = 0;
+
+          return { totalMin: h * 60 + m, hour: h, min: m };
+        }
+
+        const secondHasAm = /am/i.test(parts[1]);
+        const secondHasPm = /pm/i.test(parts[1]);
+        const secondAmpm = secondHasAm ? 'am' : (secondHasPm ? 'pm' : null);
+
+        const endT = parseSingleTime(parts[1], secondAmpm);
+        const firstHasAm = /am/i.test(parts[0]);
+        const firstHasPm = /pm/i.test(parts[0]);
+        const firstAmpm = firstHasAm ? 'am' : (firstHasPm ? 'pm' : (endT && endT.hour < 12 ? 'am' : null));
+
+        const startT = parseSingleTime(parts[0], firstAmpm);
+        if (!startT || !endT) return null;
+
+        const isOvernight = endT.totalMin <= startT.totalMin;
+        return { start: startT, end: endT, isOvernight };
+      }
+
+      function isDayOffForTl(tl, dayName) {
+        if (!tl || !tl.daysOff) return false;
+        let arr = [];
+        if (Array.isArray(tl.daysOff)) {
+          arr = tl.daysOff;
+        } else if (typeof tl.daysOff === 'string') {
+          arr = tl.daysOff.split(/[,\/\s\-–]+/).map(s => s.trim()).filter(Boolean);
+        } else {
+          return false;
+        }
+
+        const lowerDay = dayName.toLowerCase();
+        const shortDay = lowerDay.substring(0, 3);
+        return arr.some(item => {
+          if (!item) return false;
+          const s = String(item).trim().toLowerCase();
+          return s === lowerDay || s === shortDay || lowerDay.startsWith(s);
+        });
+      }
+
+      function getShiftSlotsForDate(tl, isoDate) {
+        if (!tl || !tl.shift) return new Set();
+        const shift = parseShiftHours(tl.shift);
+        if (!shift) return new Set();
+
+        const slotSet = new Set();
+        const dayIdx = getDayOfWeekIndex(isoDate);
+        const dayName = DAY_NAMES[dayIdx];
+        const isOff = isDayOffForTl(tl, dayName);
+
+        const prevIso = addDaysToIso(isoDate, -1);
+        const prevDayIdx = getDayOfWeekIndex(prevIso);
+        const prevDayName = DAY_NAMES[prevDayIdx];
+        const prevIsOff = isDayOffForTl(tl, prevDayName);
+
+        if (!isOff) {
+          const startSlot = Math.floor(shift.start.totalMin / 30);
+          if (!shift.isOvernight) {
+            const endSlot = Math.floor(shift.end.totalMin / 30);
+            for (let s = startSlot; s < endSlot; s++) {
+              if (s >= 0 && s < 48) slotSet.add(s);
+            }
+          } else {
+            for (let s = startSlot; s < 48; s++) slotSet.add(s);
+          }
+        }
+
+        if (shift.isOvernight && !prevIsOff) {
+          const morningEndSlot = Math.floor(shift.end.totalMin / 30);
+          for (let s = 0; s < morningEndSlot; s++) slotSet.add(s);
+        }
+
+        return slotSet;
+      }
+
+      function isDateLockedByRule(isoDate) {
+        if (isScheduleLocked) return true;
+        if (autoLockRules.cutoffEnabled && autoLockRules.cutoffDate) {
+          if (isoDate <= autoLockRules.cutoffDate) return true;
+        }
+        if (Array.isArray(autoLockRules.lockedDates) && autoLockRules.lockedDates.includes(isoDate)) {
+          return true;
+        }
+        return false;
+      }
+
+      // -------------------------------------------------------------
+      // ISOLATED PER-TL STORAGE ACCESSORS
+      // -------------------------------------------------------------
+            // -------------------------------------------------------------
+      // FIREBASE FIRESTORE REAL-TIME MULTI-USER SYNC
+      // -------------------------------------------------------------
+      const firebaseConfig = {
+        apiKey: "AIzaSyCYg8Vi4dgEnI3e0kD-kqzmWgAH_QG17BE",
+        authDomain: "tl-availability-tracker.firebaseapp.com",
+        projectId: "tl-availability-tracker",
+        storageBucket: "tl-availability-tracker.firebasestorage.app",
+        messagingSenderId: "747294559210",
+        appId: "1:747294559210:web:0664423010b3daffa04093"
+      };
+
+      let db = null;
+      const subscribedTlIds = new Set();
+
+      function updateFirebaseSyncUI(state, label) {
+        const badge = document.getElementById('firebaseSyncBadge');
+        const dot = document.getElementById('firebaseSyncDot');
+        const text = document.getElementById('firebaseSyncText');
+        if (!badge || !dot || !text) return;
+        text.textContent = label;
+        if (state === 'live') {
+          badge.className = 'inline-flex items-center space-x-1 bg-emerald-50 text-emerald-700 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-200';
+          dot.className = 'w-1.5 h-1.5 rounded-full bg-emerald-500';
+        } else if (state === 'syncing') {
+          badge.className = 'inline-flex items-center space-x-1 bg-amber-50 text-amber-700 text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-200';
+          dot.className = 'w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping';
+        } else {
+          badge.className = 'inline-flex items-center space-x-1 bg-slate-100 text-slate-600 text-[10px] font-bold px-2 py-0.5 rounded-full border border-slate-300';
+          dot.className = 'w-1.5 h-1.5 rounded-full bg-slate-400';
+        }
+      }
+
+      try {
+        if (typeof firebase !== 'undefined') {
+          if (!firebase.apps.length) {
+            firebase.initializeApp(firebaseConfig);
+          }
+          db = firebase.firestore();
+        }
+      } catch (e) {
+        console.warn('Firebase initialization fallback to local storage:', e);
+        updateFirebaseSyncUI('offline', 'Local Cache');
+      }
+
+      function syncGlobalMetaToFirebase() {
+        if (!db) return;
+        updateFirebaseSyncUI('syncing', 'Syncing...');
+        db.collection('tracker_meta').doc('global').set({
+          teamLeaders: teamLeaders,
+          isScheduleLocked: isScheduleLocked,
+          autoLockRules: autoLockRules,
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        }, { merge: true })
+        .then(() => updateFirebaseSyncUI('live', 'Live Sync'))
+        .catch((err) => {
+          console.warn('Firestore meta sync error:', err);
+          updateFirebaseSyncUI('offline', 'Local Cache');
+        });
+      }
+
+      function syncTlScheduleToFirebase(tlId) {
+        if (!db || !tlId) return;
+        updateFirebaseSyncUI('syncing', 'Syncing...');
+        db.collection('tl_schedules').doc(tlId).set({
+          slots: tlSchedulesMap[tlId] || {},
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        })
+        .then(() => updateFirebaseSyncUI('live', 'Live Sync'))
+        .catch((err) => {
+          console.warn('Firestore TL schedule sync error:', err);
+          updateFirebaseSyncUI('offline', 'Local Cache');
+        });
+      }
+
+      function subscribeToTlSchedule(tlId) {
+        if (!db || !tlId || subscribedTlIds.has(tlId)) return;
+        subscribedTlIds.add(tlId);
+        db.collection('tl_schedules').doc(tlId).onSnapshot((doc) => {
+          updateFirebaseSyncUI('live', 'Live Sync');
+          if (!doc.exists) return;
+          const data = doc.data();
+          tlSchedulesMap[tlId] = data.slots || {};
+          localStorage.setItem(STORAGE_KEY_SCHED_PREFIX + tlId, JSON.stringify(tlSchedulesMap[tlId]));
+          if (tlId === activeTlId) {
+            renderMatrix();
+          }
+        }, (err) => {
+          console.warn('Firestore schedule listener error:', err);
+          updateFirebaseSyncUI('offline', 'Local Cache');
+        });
+      }
+
+      function startFirebaseLiveListeners() {
+        if (!db) {
+          updateFirebaseSyncUI('offline', 'Local Cache');
+          return;
+        }
+        // Subscribe to all currently loaded TLs right away
+        teamLeaders.forEach(tl => subscribeToTlSchedule(tl.id));
+
+        db.collection('tracker_meta').doc('global').onSnapshot((doc) => {
+          updateFirebaseSyncUI('live', 'Live Sync');
+          if (!doc.exists) {
+            // Initialize global meta doc in Firestore on first-ever run
+            syncGlobalMetaToFirebase();
+            teamLeaders.forEach(tl => {
+              if (Object.keys(getTlSchedule(tl.id)).length > 0) {
+                syncTlScheduleToFirebase(tl.id);
+              }
+            });
+            return;
+          }
+          const data = doc.data();
+          if (Array.isArray(data.teamLeaders)) {
+            teamLeaders = data.teamLeaders;
+            localStorage.setItem(STORAGE_KEY_ROSTER, JSON.stringify(teamLeaders));
+            teamLeaders.forEach(tl => subscribeToTlSchedule(tl.id));
+            if (teamLeaders.length > 0 && (!activeTlId || !teamLeaders.some(t => t.id === activeTlId))) {
+              activeTlId = teamLeaders[0].id;
+            }
+          }
+          if (typeof data.isScheduleLocked === 'boolean') {
+            isScheduleLocked = data.isScheduleLocked;
+            localStorage.setItem(STORAGE_KEY_LOCK, JSON.stringify(isScheduleLocked));
+          }
+          if (data.autoLockRules) {
+            autoLockRules = data.autoLockRules;
+            localStorage.setItem(STORAGE_KEY_RULES, JSON.stringify(autoLockRules));
+          }
+          renderSupervisorDropdown();
+          updateAdminLockUI();
+          renderMatrix();
+        }, (err) => {
+          console.warn('Firestore global listener error:', err);
+          updateFirebaseSyncUI('offline', 'Local Cache');
+        });
+      }
+
+      function getTlSchedule(tlId) {
+        if (!tlId) return {};
+        if (!tlSchedulesMap[tlId]) {
+          try {
+            const raw = localStorage.getItem(STORAGE_KEY_SCHED_PREFIX + tlId);
+            tlSchedulesMap[tlId] = raw ? JSON.parse(raw) : {};
+          } catch (e) {
+            tlSchedulesMap[tlId] = {};
+          }
+        }
+        return tlSchedulesMap[tlId];
+      }
+
+      // Saves ONLY the specified supervisor's schedule—never touches any other supervisor's storage!
+      function saveTlSchedule(tlId) {
+        if (!tlId) return;
+        const data = tlSchedulesMap[tlId] || {};
+        localStorage.setItem(STORAGE_KEY_SCHED_PREFIX + tlId, JSON.stringify(data));
+        syncTlScheduleToFirebase(tlId);
+      }
+
+      function loadState() {
+        try {
+          // 1. Load or migrate Roster
+          const r = localStorage.getItem(STORAGE_KEY_ROSTER);
+          if (r) {
+            const parsed = JSON.parse(r);
+            teamLeaders = Array.isArray(parsed) ? parsed : [...DEFAULT_SAMPLE_ROSTER];
+          } else {
+            const legacyR = localStorage.getItem(LEGACY_ROSTER_KEY);
+            if (legacyR) {
+              const parsedLegacy = JSON.parse(legacyR);
+              teamLeaders = Array.isArray(parsedLegacy) && parsedLegacy.length > 0 ? parsedLegacy : [...DEFAULT_SAMPLE_ROSTER];
+            } else {
+              teamLeaders = [...DEFAULT_SAMPLE_ROSTER];
+            }
+            saveRoster();
+          }
+
+          // 2. Load per-TL schedules (and migrate any legacy v4 monolithic store once)
+          const legacyS = localStorage.getItem(LEGACY_SCHED_KEY);
+          if (legacyS && !localStorage.getItem('tl_tracker_migrated_v5')) {
+            const parsedLegacyS = JSON.parse(legacyS);
+            Object.keys(parsedLegacyS).forEach(fullKey => {
+              const idx1 = fullKey.indexOf('_');
+              const lastIdx = fullKey.lastIndexOf('_');
+              if (idx1 !== -1 && lastIdx > idx1) {
+                // Format was: tlId_YYYY-MM-DD_slot
+                // Since tlId itself can contain underscores (e.g. tl_1), extract YYYY-MM-DD_slot from end
+                const m = fullKey.match(/^(.+)_(\d{4}-\d{2}-\d{2}_\d+)$/);
+                if (m) {
+                  const tId = m[1];
+                  const cellCoord = m[2];
+                  if (!tlSchedulesMap[tId]) tlSchedulesMap[tId] = {};
+                  tlSchedulesMap[tId][cellCoord] = parsedLegacyS[fullKey];
+                }
+              }
+            });
+            Object.keys(tlSchedulesMap).forEach(tId => saveTlSchedule(tId));
+            localStorage.setItem('tl_tracker_migrated_v5', '1');
+          }
+
+          // Preload schedules for all TLs in roster
+          teamLeaders.forEach(tl => getTlSchedule(tl.id));
+
+          // 3. Load Lock & Cutoff Rules
+          const l = localStorage.getItem(STORAGE_KEY_LOCK) ?? localStorage.getItem(LEGACY_LOCK_KEY);
+          if (l) isScheduleLocked = JSON.parse(l);
+
+          const rules = localStorage.getItem(STORAGE_KEY_RULES) ?? localStorage.getItem(LEGACY_RULES_KEY);
+          if (rules) autoLockRules = JSON.parse(rules);
+        } catch (e) {
+          teamLeaders = [...DEFAULT_SAMPLE_ROSTER];
+        }
+
+        if (teamLeaders.length > 0) {
+          if (!activeTlId || !teamLeaders.some(t => t.id === activeTlId)) {
+            activeTlId = teamLeaders[0].id;
+          }
+        } else {
+          activeTlId = null;
+        }
+      }
+
+      function saveRoster() { localStorage.setItem(STORAGE_KEY_ROSTER, JSON.stringify(teamLeaders)); syncGlobalMetaToFirebase(); }
+      function saveLockState() { localStorage.setItem(STORAGE_KEY_LOCK, JSON.stringify(isScheduleLocked)); syncGlobalMetaToFirebase(); }
+      function saveRulesState() { localStorage.setItem(STORAGE_KEY_RULES, JSON.stringify(autoLockRules)); syncGlobalMetaToFirebase(); }
+
+      function getActiveTl() {
+        if (!activeTlId && teamLeaders.length > 0) activeTlId = teamLeaders[0].id;
+        return teamLeaders.find(t => t.id === activeTlId) || null;
+      }
+
+      function renderSupervisorDropdown() {
+        const select = document.getElementById('tlSelector');
+        select.innerHTML = '';
+
+        if (teamLeaders.length === 0) {
+          const opt = document.createElement('option');
+          opt.value = '';
+          opt.textContent = '-- No Supervisors Loaded --';
+          select.appendChild(opt);
+          renderProfileBanner(null);
+          return;
+        }
+
+        teamLeaders.forEach(tl => {
+          const opt = document.createElement('option');
+          opt.value = tl.id;
+          opt.textContent = `${tl.name} (${tl.team || 'General'})`;
+          if (tl.id === activeTlId) opt.selected = true;
+          select.appendChild(opt);
+        });
+
+        renderProfileBanner(getActiveTl());
+      }
+
+      function renderProfileBanner(tl) {
+        const pName = document.getElementById('profName');
+        const pTeam = document.getElementById('profTeam');
+        const pShift = document.getElementById('profShift');
+        const pOff = document.getElementById('profOff');
+        const pTz = document.getElementById('profTz');
+        const activeTzBadge = document.getElementById('activeTzBadge');
+        const tzSelector = document.getElementById('tzSelector');
+
+        if (!tl) {
+          pName.textContent = 'No Supervisor Selected';
+          pTeam.textContent = 'Team: -';
+          pShift.textContent = 'Shift: -';
+          pOff.textContent = 'Days Off: -';
+          pTz.textContent = 'TZ: -';
+          return;
+        }
+
+        const tz = tl.timezone || 'EST';
+        pName.textContent = tl.name;
+        pTeam.textContent = `Team: ${tl.team || 'General'}`;
+        pShift.textContent = `Shift: ${tl.shift}`;
+        pOff.textContent = `Days Off: ${Array.isArray(tl.daysOff) ? tl.daysOff.join(', ') : (tl.daysOff || 'None')}`;
+        pTz.textContent = `TZ: ${tz}`;
+        
+        activeTzBadge.textContent = tz;
+        tzSelector.value = tz;
+      }
+
+      function updateAdminLockUI() {
+        const btn = document.getElementById('btnAdminLock');
+        const expBtn = document.getElementById('btnExportCSV');
+        const expBadge = document.getElementById('exportLockBadge');
+        const autoGroup = document.getElementById('automationButtonsGroup');
+
+        if (isScheduleLocked) {
+          btn.className = 'px-2.5 py-1.5 bg-rose-50 text-rose-700 border border-rose-300 rounded-lg font-bold flex items-center space-x-1 hover:bg-rose-100';
+          btn.innerHTML = '<i class="fa-solid fa-lock text-rose-600"></i><span>Locked</span>';
+          expBtn.disabled = false;
+          expBtn.className = 'px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold flex items-center space-x-1.5 cursor-pointer shadow-sm';
+          expBadge.textContent = 'Ready';
+          expBadge.className = 'text-[9px] bg-emerald-800 text-emerald-100 px-1.5 py-0.2 rounded font-normal';
+          if (autoGroup) autoGroup.classList.add('opacity-60');
+        } else {
+          btn.className = 'px-2.5 py-1.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg font-semibold flex items-center space-x-1 hover:bg-emerald-100';
+          btn.innerHTML = '<i class="fa-solid fa-lock-open text-emerald-600"></i><span>Unlocked</span>';
+          expBtn.disabled = true;
+          expBtn.className = 'px-3 py-1.5 bg-slate-200 text-slate-400 rounded-lg font-bold flex items-center space-x-1.5 cursor-not-allowed border border-slate-300';
+          expBadge.textContent = 'Locked Only';
+          expBadge.className = 'text-[9px] bg-slate-300 text-slate-600 px-1.5 py-0.2 rounded font-normal';
+          if (autoGroup) autoGroup.classList.remove('opacity-60');
+        }
+      }
+
+      function getVisibleDates() {
+        const dates = [];
+        const startMonday = getMondayOfIsoWeek(baseAnchorDate);
+        const numWeeks = (activeViewScope === 'month') ? 4 : (parseInt(activeViewScope, 10) || 1);
+        const totalDays = numWeeks * 7;
+        for (let i = 0; i < totalDays; i++) {
+          dates.push(addDaysToIso(startMonday, i));
+        }
+        return dates;
+      }
+
+      function renderMatrix() {
+        const table = document.getElementById('scheduleTable');
+        table.innerHTML = '';
+        const tl = getActiveTl();
+        const dates = getVisibleDates();
+        const activeTz = tl ? (tl.timezone || 'EST') : 'EST';
+
+        if (!tl) {
+          table.innerHTML = `<tr><td class="p-8 text-center text-slate-400 font-medium"><i class="fa-solid fa-users text-4xl mb-3 text-slate-300 block"></i>No team supervisors loaded. Click <strong>Manage TLs</strong> above to add or import your roster.</td></tr>`;
+          updateCounters();
+          return;
+        }
+
+        const tlSched = getTlSchedule(tl.id);
+
+        const thead = document.createElement('thead');
+        const headerRow = document.createElement('tr');
+        headerRow.className = 'sticky-header';
+
+        const cornerTh = document.createElement('th');
+        cornerTh.className = 'sticky-corner p-2 text-left font-bold text-slate-700 min-w-[140px] text-[11px] shadow-sm';
+        cornerTh.innerHTML = `Date / Day <span class="text-indigo-600 font-extrabold ml-1">(${activeTz})</span>`;
+        headerRow.appendChild(cornerTh);
+
+        TIME_SLOTS.forEach(slot => {
+          const th = document.createElement('th');
+          th.className = 'p-1.5 font-bold text-slate-600 min-w-[85px] max-w-[95px] text-[10px] whitespace-nowrap bg-slate-100';
+          th.textContent = slot.label.split(' - ')[0];
+          th.title = slot.label;
+          headerRow.appendChild(th);
+        });
+        thead.appendChild(headerRow);
+        table.appendChild(thead);
+
+        const tbody = document.createElement('tbody');
+        dates.forEach((isoDate, idx) => {
+          if (idx > 0 && idx % 7 === 0) {
+            const sepRow = document.createElement('tr');
+            sepRow.className = 'bg-slate-200 font-bold text-slate-700 text-left text-[11px]';
+            const sepTd = document.createElement('td');
+            sepTd.colSpan = 49;
+            sepTd.className = 'p-1.5 pl-3 tracking-wide';
+            sepTd.innerHTML = `<i class="fa-solid fa-calendar-week mr-1.5 text-indigo-600"></i> Week ${Math.floor(idx / 7) + 1} (Starting ${formatIsoDateNice(isoDate)})`;
+            sepRow.appendChild(sepTd);
+            tbody.appendChild(sepRow);
+          }
+
+          const tr = document.createElement('tr');
+          const isLockedDate = isDateLockedByRule(isoDate);
+          const shiftSlots = getShiftSlotsForDate(tl, isoDate);
+          const dayIdx = getDayOfWeekIndex(isoDate);
+          const dayName = DAY_NAMES[dayIdx];
+          const isDayOff = isDayOffForTl(tl, dayName);
+
+          const dateTd = document.createElement('td');
+          dateTd.className = 'sticky-col p-2 text-left font-semibold text-slate-800 text-[11px] bg-white border-r';
+          let lockIcon = isLockedDate ? '<span class="ml-1 text-[9px] bg-rose-100 text-rose-700 px-1 py-0.2 rounded font-bold" title="Locked"><i class="fa-solid fa-lock text-[9px]"></i></span>' : '';
+          let offBadge = isDayOff ? '<span class="ml-1 text-[9px] bg-slate-100 text-slate-500 px-1 py-0.2 rounded font-bold">OFF</span>' : '';
+
+          dateTd.innerHTML = `<div class="flex items-center justify-between"><div><span class="block text-slate-900 font-bold">${formatIsoDateNice(isoDate)}</span><span class="text-[10px] text-slate-400">${dayName}</span></div><div class="flex items-center space-x-1">${lockIcon}${offBadge}</div></div>`;
+          tr.appendChild(dateTd);
+
+          for (let s = 0; s < 48; s++) {
+            const td = document.createElement('td');
+            const cellCoord = `${isoDate}_${s}`;
+            const cellVal = tlSched[cellCoord] || null;
+            const inShift = shiftSlots.has(s);
+
+            td.dataset.date = isoDate;
+            td.dataset.slot = s;
+            td.dataset.tlId = tl.id;
+            
+            td.className = 'h-9 text-[10px] select-none transition-colors relative has-tooltip cell-interactive';
+
+            if (isLockedDate || isScheduleLocked) {
+              td.classList.add('cell-locked');
+            }
+
+            if (selectedCells.has(cellCoord)) {
+              td.classList.add('cell-selected');
+            }
+
+            if (cellVal && cellVal.status && cellVal.status !== 'Blank') {
+              td.classList.add(`status-${cellVal.status.toLowerCase()}`);
+              const agentName = cellVal.agent ? cellVal.agent.trim() : '';
+              td.innerHTML = `
+                <div class="truncate px-1 font-bold leading-tight">${cellVal.status}</div>
+                ${agentName ? `<div class="truncate px-1 text-[9px] opacity-90 font-medium">${agentName}</div>` : ''}
+                <span class="tooltip-text">${cellVal.status}${agentName ? ' - ' + agentName : ''} (${TIME_SLOTS[s].label})</span>
+              `;
+              if (!isLockedDate && !isScheduleLocked) {
+                td.draggable = true;
+              } else {
+                td.draggable = false;
+              }
+            } else if (inShift) {
+              td.classList.add('status-in-shift-blank');
+              td.innerHTML = `<span class="tooltip-text">Shift Work Slot (${TIME_SLOTS[s].label})</span>`;
+            } else {
+              td.classList.add('status-off-shift');
+              td.title = 'Flexible / Off-Shift Slot';
+            }
+
+            td.addEventListener('dragstart', handleDragStart);
+            td.addEventListener('dragover', handleDragOver);
+            td.addEventListener('dragleave', handleDragLeave);
+            td.addEventListener('drop', handleDrop);
+            td.addEventListener('click', handleCellClick);
+
+            tr.appendChild(td);
+          }
+          tbody.appendChild(tr);
+        });
+        table.appendChild(tbody);
+        updateCounters();
+      }
+
+      // Cell selection logic with strict locking protection
+      function handleCellClick(e) {
+        if (isScheduleLocked) {
+          showToast('Schedule is Locked by Admin. Unlock it first to edit cells.', 'warning');
+          return;
+        }
+
+        const td = e.currentTarget;
+        const isoDate = td.dataset.date;
+        const slot = td.dataset.slot;
+
+        if (isDateLockedByRule(isoDate)) {
+          showToast(`Date ${isoDate} is locked by an Auto-Lock rule.`, 'warning');
+          return;
+        }
+
+        const cellCoord = `${isoDate}_${slot}`;
+        if (selectedCells.has(cellCoord)) {
+          selectedCells.delete(cellCoord);
+          td.classList.remove('cell-selected');
+        } else {
+          selectedCells.add(cellCoord);
+          td.classList.add('cell-selected');
+        }
+        updateBulkToolbar();
+      }
+
+      function updateBulkToolbar() {
+        const bar = document.getElementById('bulkUpdateToolbar');
+        const countLabel = document.getElementById('bulkCountLabel');
+        if (selectedCells.size > 0 && !isScheduleLocked) {
+          bar.classList.remove('hidden');
+          countLabel.textContent = selectedCells.size;
+        } else {
+          bar.classList.add('hidden');
+        }
+      }
+
+      function clearCellSelection() {
+        selectedCells.clear();
+        document.querySelectorAll('.cell-selected').forEach(el => el.classList.remove('cell-selected'));
+        updateBulkToolbar();
+      }
+
+      document.addEventListener('click', function(e) {
+        const table = document.getElementById('scheduleTable');
+        const toolbar = document.getElementById('bulkUpdateToolbar');
+        if (!table?.contains(e.target) && !toolbar?.contains(e.target) && !e.target.closest('.fixed.z-50')) {
+          if (selectedCells.size > 0) clearCellSelection();
+        }
+      });
+
+      // Drag and drop with strict locking check & isolated TL storage
+      function handleDragStart(e) {
+        if (isScheduleLocked) { e.preventDefault(); return; }
+        const td = e.currentTarget;
+        const isoDate = td.dataset.date;
+        const slot = td.dataset.slot;
+        const tlId = td.dataset.tlId;
+
+        if (isDateLockedByRule(isoDate)) { e.preventDefault(); return; }
+
+        const tlSched = getTlSchedule(tlId);
+        const data = tlSched[`${isoDate}_${slot}`];
+        if (!data || !data.status) { e.preventDefault(); return; }
+
+        draggedCellData = { fromTlId: tlId, fromDate: isoDate, fromSlot: slot, status: data.status, agent: data.agent || '' };
+        e.dataTransfer.setData('text/plain', JSON.stringify(draggedCellData));
+        e.dataTransfer.effectAllowed = 'move';
+      }
+
+      function handleDragOver(e) {
+        if (isScheduleLocked) return;
+        const targetDate = e.currentTarget.dataset.date;
+        if (isDateLockedByRule(targetDate)) return;
+
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        e.currentTarget.classList.add('drag-over');
+      }
+
+      function handleDragLeave(e) { 
+        e.currentTarget.classList.remove('drag-over'); 
+      }
+
+      function handleDrop(e) {
+        if (isScheduleLocked) return;
+        e.preventDefault();
+        const targetTd = e.currentTarget;
+        targetTd.classList.remove('drag-over');
+        const targetDate = targetTd.dataset.date;
+        const targetSlot = targetTd.dataset.slot;
+        const targetTlId = targetTd.dataset.tlId;
+
+        if (isDateLockedByRule(targetDate)) { 
+          showToast('Cannot reschedule onto a locked date.', 'warning'); 
+          return; 
+        }
+        if (!draggedCellData) return;
+
+        const tlSched = getTlSchedule(targetTlId);
+        delete tlSched[`${draggedCellData.fromDate}_${draggedCellData.fromSlot}`];
+        tlSched[`${targetDate}_${targetSlot}`] = { status: draggedCellData.status, agent: draggedCellData.agent };
+        saveTlSchedule(targetTlId);
+        draggedCellData = null;
+        renderMatrix();
+      }
+
+      function updateCounters() {
+        const tl = getActiveTl();
+        const counts = { Available: 0, Coaching: 0, PMC: 0, TMH: 0, Lunch: 0, Unavailable: 0 };
+        if (tl) {
+          const visibleDates = new Set(getVisibleDates());
+          const tlSched = getTlSchedule(tl.id);
+          Object.keys(tlSched).forEach(coord => {
+            const isoDate = coord.split('_')[0];
+            if (visibleDates.has(isoDate)) {
+              const val = tlSched[coord];
+              if (val && counts.hasOwnProperty(val.status)) counts[val.status] += 0.5;
+            }
+          });
+        }
+        document.getElementById('cntAvailable').textContent = `${counts.Available}h`;
+        document.getElementById('cntCoaching').textContent = `${counts.Coaching}h`;
+        document.getElementById('cntPmc').textContent = `${counts.PMC}h`;
+        document.getElementById('cntTmh').textContent = `${counts.TMH}h`;
+        document.getElementById('cntLunch').textContent = `${counts.Lunch}h`;
+        document.getElementById('cntUnavailable').textContent = `${counts.Unavailable}h`;
+      }
+
+      function populateModalDates(containerId, presetType = 'working') {
+        const container = document.getElementById(containerId);
+        container.innerHTML = '';
+        const tl = getActiveTl();
+        if (!tl) return;
+
+        const dates = getVisibleDates();
+        dates.forEach(isoDate => {
+          const dayIdx = getDayOfWeekIndex(isoDate);
+          const dayName = DAY_NAMES[dayIdx];
+          const isOff = isDayOffForTl(tl, dayName);
+          const isLocked = isDateLockedByRule(isoDate);
+
+          const div = document.createElement('label');
+          div.className = `flex items-center space-x-2 p-1 rounded hover:bg-slate-50 cursor-pointer ${isLocked ? 'opacity-40 cursor-not-allowed' : ''}`;
+          
+          let shouldCheck = false;
+          if (!isLocked) {
+            if (presetType === 'working' && !isOff) shouldCheck = true;
+            if (presetType === 'all') shouldCheck = true;
+          }
+
+          div.innerHTML = `
+            <input type="checkbox" value="${isoDate}" ${shouldCheck ? 'checked' : ''} ${isLocked ? 'disabled' : ''} class="rounded text-indigo-600 modal-date-chk">
+            <span class="font-medium text-slate-800">${formatIsoDateNice(isoDate)} (${dayName})</span>
+            ${isOff ? '<span class="text-[9px] bg-slate-200 px-1 rounded text-slate-600 font-bold ml-1">OFF</span>' : ''}
+            ${isLocked ? '<span class="text-[9px] bg-rose-200 px-1 rounded text-rose-800 font-bold ml-1">LOCKED</span>' : ''}
+          `;
+          container.appendChild(div);
+        });
+      }
+
+      function populateLunchTimeSlots() {
+        const select = document.getElementById('lunchStartTime');
+        if (!select) return;
+        const prevVal = select.value;
+        select.innerHTML = '';
+        TIME_SLOTS.forEach(slot => {
+          const opt = document.createElement('option');
+          opt.value = slot.index;
+          opt.textContent = slot.label.split(' - ')[0];
+          if (prevVal ? String(slot.index) === prevVal : slot.index === 24) opt.selected = true;
+          select.appendChild(opt);
+        });
+      }
+
+      function renderExportModal() {
+        const container = document.getElementById('exportTlCheckList');
+        container.innerHTML = '';
+        const visibleDates = new Set(getVisibleDates());
+
+        teamLeaders.forEach(tl => {
+          let activeSlotsCount = 0;
+          const tlSched = getTlSchedule(tl.id);
+          Object.keys(tlSched).forEach(coord => {
+            const isoDate = coord.split('_')[0];
+            if (visibleDates.has(isoDate)) {
+              const status = tlSched[coord]?.status;
+              if (['Available', 'Coaching', 'PMC', 'TMH'].includes(status)) activeSlotsCount++;
+            }
+          });
+
+          const hasActivity = activeSlotsCount > 0;
+          const activeHours = (activeSlotsCount * 0.5).toFixed(1);
+
+          const div = document.createElement('label');
+          div.className = 'flex items-center justify-between p-2 rounded-lg border border-slate-200 hover:bg-slate-50 cursor-pointer';
+          div.innerHTML = `
+            <div class="flex items-center space-x-2">
+              <input type="checkbox" value="${tl.id}" data-has-activity="${hasActivity}" ${hasActivity ? 'checked' : ''} class="rounded text-emerald-600 export-tl-chk">
+              <span class="font-bold text-slate-800">${tl.name}</span>
+              <span class="text-slate-400">(${tl.team || 'General'})</span>
+            </div>
+            <div>
+              ${hasActivity ? `<span class="bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded text-[10px]">${activeHours}h Active</span>` : `<span class="bg-slate-100 text-slate-500 font-medium px-2 py-0.5 rounded text-[10px]">No Offline Activity</span>`}
+            </div>
+          `;
+          container.appendChild(div);
+        });
+      }
+
+      function generateAndDownloadCsv() {
+        const selectedTlIds = [];
+        document.querySelectorAll('.export-tl-chk:checked').forEach(chk => selectedTlIds.push(chk.value));
+        if (selectedTlIds.length === 0) { 
+          showToast('Please select at least one Team Leader to export.', 'warning'); 
+          return; 
+        }
+
+        const visibleDates = getVisibleDates();
+        const rows = [['Team', 'Date', 'Time Slot', 'Status', "Agent's Name"]];
+        let totalExportedRecords = 0;
+
+        selectedTlIds.forEach(tlId => {
+          const tl = teamLeaders.find(t => t.id === tlId);
+          if (!tl) return;
+          const tz = tl.timezone || 'EST';
+          const tlSched = getTlSchedule(tl.id);
+
+          visibleDates.forEach(isoDate => {
+            for (let s = 0; s < 48; s++) {
+              const data = tlSched[`${isoDate}_${s}`];
+              if (data && ['Available', 'Coaching', 'PMC', 'TMH'].includes(data.status)) {
+                rows.push([
+                  `"${(tl.team || 'General').replace(/"/g, '""')}"`,
+                  `"${isoDate}"`,
+                  `"${(TIME_SLOTS[s].label + ' (' + tz + ')').replace(/"/g, '""')}"`,
+                  `"${data.status}"`,
+                  `"${(data.agent || '').trim().replace(/"/g, '""')}"`
+                ]);
+                totalExportedRecords++;
+              }
+            }
+          });
+        });
+
+        if (totalExportedRecords === 0) {
+          showToast('No plotted offline available activities (Available, Coaching, PMC, TMH) found for selected TLs.', 'warning');
+          return;
+        }
+
+        const csvContent = rows.map(r => r.join(',')).join('\r\n');
+        const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `WFM_Availability_Export_${baseAnchorDate}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        hideModal('exportModal');
+        showToast(`Exported ${totalExportedRecords} slot(s) to CSV.`, 'success');
+      }
+
+      // Render Roster Table with Edit and Delete options
+      function renderRosterTable() {
+        const tbody = document.getElementById('tlRosterTableBody');
+        tbody.innerHTML = '';
+        teamLeaders.forEach((tl, index) => {
+          const tr = document.createElement('tr');
+          tr.className = 'hover:bg-slate-50 transition-colors';
+          tr.innerHTML = `
+            <td class="p-2 font-bold text-slate-800">${tl.name}</td>
+            <td class="p-2 text-slate-600">${tl.team || 'General'}</td>
+            <td class="p-2 text-slate-600">${tl.shift}</td>
+            <td class="p-2 text-slate-600">${Array.isArray(tl.daysOff) ? tl.daysOff.join(', ') : (tl.daysOff || 'None')}</td>
+            <td class="p-2 font-bold text-indigo-600">${tl.timezone || 'EST'}</td>
+            <td class="p-2 text-right space-x-2">
+              <button type="button" class="text-indigo-600 hover:text-indigo-800 font-bold text-xs edit-tl-btn" data-id="${tl.id}" title="Edit Supervisor">
+                <i class="fa-solid fa-pen-to-square"></i> Edit
+              </button>
+              <button type="button" class="text-rose-600 hover:text-rose-800 font-bold text-xs delete-tl-btn" data-index="${index}" title="Delete Supervisor">
+                <i class="fa-solid fa-trash-can"></i>
+              </button>
+            </td>
+          `;
+          tbody.appendChild(tr);
+        });
+        document.getElementById('tlCountInfo').textContent = `Total TLs: ${teamLeaders.length} / 100`;
+
+        document.querySelectorAll('.edit-tl-btn').forEach(btn => {
+          btn.addEventListener('click', (e) => {
+            const tlId = e.currentTarget.dataset.id;
+            startEditTl(tlId);
+          });
+        });
+
+        document.querySelectorAll('.delete-tl-btn').forEach(btn => {
+          btn.addEventListener('click', (e) => {
+            const idx = parseInt(e.currentTarget.dataset.index, 10);
+            const deleted = teamLeaders.splice(idx, 1)[0];
+            if (editingTlId === deleted.id) resetTlForm();
+            // Only switch activeTlId if the deleted supervisor was the currently viewed one
+            if (activeTlId === deleted.id) {
+              activeTlId = teamLeaders.length > 0 ? teamLeaders[0].id : null;
+            }
+            saveRoster();
+            renderRosterTable();
+            renderSupervisorDropdown();
+            renderMatrix();
+            showToast(`Removed ${deleted.name} from roster. Other supervisors' schedules remain intact.`, 'info');
+          });
+        });
+      }
+
+      function startEditTl(tlId) {
+        const tl = teamLeaders.find(t => t.id === tlId);
+        if (!tl) return;
+
+        editingTlId = tlId;
+        document.getElementById('inputTlName').value = tl.name;
+        document.getElementById('inputTlTeam').value = tl.team || '';
+        document.getElementById('inputTlShift').value = tl.shift || '';
+        document.getElementById('inputTlOff').value = Array.isArray(tl.daysOff) ? tl.daysOff.join(', ') : (tl.daysOff || '');
+        document.getElementById('inputTlTz').value = tl.timezone || 'EST';
+
+        document.getElementById('formHeaderTitle').innerHTML = '<i class="fa-solid fa-pen-to-square text-amber-600 mr-1.5"></i> Edit Supervisor Information';
+        document.getElementById('editModeNotice').classList.remove('hidden');
+        const saveBtn = document.getElementById('btnSaveTlAction');
+        saveBtn.textContent = 'Save Changes';
+        saveBtn.className = 'px-3 py-1 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded h-[30px] self-end whitespace-nowrap shadow-sm';
+        document.getElementById('btnCancelTlEdit').classList.remove('hidden');
+
+        document.getElementById('inputTlName').focus();
+      }
+
+      function resetTlForm() {
+        editingTlId = null;
+        document.getElementById('inputTlName').value = '';
+        document.getElementById('inputTlTeam').value = '';
+        document.getElementById('inputTlShift').value = '';
+        document.getElementById('inputTlOff').value = '';
+        document.getElementById('inputTlTz').value = 'EST';
+
+        document.getElementById('formHeaderTitle').innerHTML = '<i class="fa-solid fa-user-plus text-indigo-600 mr-1.5"></i> Add New Supervisor';
+        document.getElementById('editModeNotice').classList.add('hidden');
+        const saveBtn = document.getElementById('btnSaveTlAction');
+        saveBtn.textContent = 'Add TL';
+        saveBtn.className = 'px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded h-[30px] self-end whitespace-nowrap shadow-sm';
+        document.getElementById('btnCancelTlEdit').classList.add('hidden');
+      }
+
+      function handleSpreadsheetUpload(isReplace) {
+        const fileInput = document.getElementById('fileUploadRoster');
+        const file = fileInput.files[0];
+        if (!file) { 
+          showToast('Please select an Excel or CSV file first.', 'warning'); 
+          return; 
+        }
+
+        const reader = new FileReader();
+        reader.onload = function(e) {
+          try {
+            const data = new Uint8Array(e.target.result);
+            const workbook = XLSX.read(data, { type: 'array' });
+            let sheetName = workbook.SheetNames[0];
+            const candidate = workbook.SheetNames.find(s => /roster|tl|schedule|availability/i.test(s));
+            if (candidate) sheetName = candidate;
+
+            const worksheet = workbook.Sheets[sheetName];
+            // raw: false ensures Excel time-formatted cells return formatted strings (e.g. "9:00 AM") instead of decimal fractions
+            const jsonRows = XLSX.utils.sheet_to_json(worksheet, { header: 1, raw: false, defval: '' });
+            if (jsonRows.length < 2) { 
+              showToast('Uploaded sheet is empty or contains no valid rows.', 'warning'); 
+              return; 
+            }
+
+            let headerRowIdx = -1;
+            let colMap = { name: -1, team: -1, shift: -1, off: -1, tz: -1 };
+
+            for (let r = 0; r < Math.min(jsonRows.length, 10); r++) {
+              const row = jsonRows[r];
+              if (!Array.isArray(row)) continue;
+              row.forEach((cell, cIdx) => {
+                if (typeof cell === 'string') {
+                  const val = cell.trim().toLowerCase();
+                  if (/name|supervisor|leader/i.test(val) && colMap.name === -1) colMap.name = cIdx;
+                  if (/team|lob|campaign|department/i.test(val) && colMap.team === -1) colMap.team = cIdx;
+                  if (/shift|schedule|hours/i.test(val) && colMap.shift === -1) colMap.shift = cIdx;
+                  if (/off|rest|weekend/i.test(val) && colMap.off === -1) colMap.off = cIdx;
+                  if (/tz|timezone|location/i.test(val) && colMap.tz === -1) colMap.tz = cIdx;
+                }
+              });
+              if (colMap.name !== -1 && colMap.shift !== -1) { headerRowIdx = r; break; }
+            }
+
+            if (headerRowIdx === -1 || colMap.name === -1) {
+              showToast('Could not detect Name and Shift columns in your spreadsheet.', 'error');
+              return;
+            }
+
+            let newTls = [];
+            const existingNames = new Set(teamLeaders.map(t => t.name.trim().toLowerCase()));
+
+            for (let r = headerRowIdx + 1; r < jsonRows.length; r++) {
+              const row = jsonRows[r];
+              if (!row || !row[colMap.name]) continue;
+
+              let rawName = String(row[colMap.name]).trim();
+              rawName = rawName.replace(/\s*[-–]?\s*\[?(EST|EDT|GMT|BST)\]?\s*$/i, '').trim();
+              if (!rawName) continue;
+
+              const team = colMap.team !== -1 && row[colMap.team] ? String(row[colMap.team]).trim() : 'General';
+              const shift = colMap.shift !== -1 && row[colMap.shift] ? String(row[colMap.shift]).trim() : '9:00 AM - 6:00 PM';
+              
+              let daysOff = ['Saturday', 'Sunday'];
+              if (colMap.off !== -1 && row[colMap.off]) {
+                const offStr = String(row[colMap.off]);
+                daysOff = offStr.split(/[,\/\s\-–]+/).map(s => s.trim()).filter(Boolean);
+              }
+
+              let tz = 'EST';
+              if (colMap.tz !== -1 && row[colMap.tz]) {
+                const rawTz = String(row[colMap.tz]).toUpperCase().trim();
+                if (['EST', 'EDT', 'GMT', 'BST'].includes(rawTz)) tz = rawTz;
+              }
+
+              if (!isReplace && existingNames.has(rawName.toLowerCase())) continue;
+
+              // Preserve existing supervisor ID if name matches so plotted sessions remain completely intact
+              const existingTlMatch = teamLeaders.find(t => t.name.trim().toLowerCase() === rawName.toLowerCase());
+              const stableId = existingTlMatch ? existingTlMatch.id : ('tl_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5));
+
+              newTls.push({
+                id: stableId,
+                name: rawName,
+                team: team,
+                shift: shift,
+                daysOff: daysOff,
+                timezone: tz
+              });
+              existingNames.add(rawName.toLowerCase());
+            }
+
+            if (isReplace) {
+              teamLeaders = newTls.slice(0, 100);
+              if (!teamLeaders.some(t => t.id === activeTlId)) {
+                activeTlId = teamLeaders.length > 0 ? teamLeaders[0].id : null;
+              }
+            } else {
+              teamLeaders = [...teamLeaders, ...newTls].slice(0, 100);
+              if (!activeTlId && teamLeaders.length > 0) activeTlId = teamLeaders[0].id;
+            }
+
+            resetTlForm();
+            saveRoster();
+            renderRosterTable();
+            renderSupervisorDropdown();
+            renderMatrix();
+            showToast(`Loaded ${newTls.length} supervisor(s). Total: ${teamLeaders.length}/100.`, 'success');
+            fileInput.value = '';
+          } catch (err) {
+            showToast('Failed to parse spreadsheet. Verify format.', 'error');
+          }
+        };
+        reader.readAsArrayBuffer(file);
+      }
+
+      function setupEventListeners() {
+        // Custom Confirm Dialog Listeners
+        document.getElementById('btnConfirmDialogCancel').addEventListener('click', () => {
+          pendingConfirmCallback = null;
+          hideModal('confirmDialogModal');
+        });
+        document.getElementById('btnConfirmDialogOk').addEventListener('click', () => {
+          hideModal('confirmDialogModal');
+          if (typeof pendingConfirmCallback === 'function') {
+            const cb = pendingConfirmCallback;
+            pendingConfirmCallback = null;
+            cb();
+          }
+        });
+
+        // Cross-tab storage isolation sync: only reloads the modified TL key
+        window.addEventListener('storage', (e) => {
+          if (e.key === STORAGE_KEY_ROSTER && e.newValue) {
+            teamLeaders = JSON.parse(e.newValue);
+            renderSupervisorDropdown();
+            renderMatrix();
+          } else if (e.key && e.key.startsWith(STORAGE_KEY_SCHED_PREFIX) && e.newValue) {
+            const changedTlId = e.key.slice(STORAGE_KEY_SCHED_PREFIX.length);
+            tlSchedulesMap[changedTlId] = JSON.parse(e.newValue);
+            if (changedTlId === activeTlId) {
+              renderMatrix();
+            }
+          } else if (e.key === STORAGE_KEY_LOCK && e.newValue) {
+            isScheduleLocked = JSON.parse(e.newValue);
+            updateAdminLockUI();
+            renderMatrix();
+          }
+        });
+
+        document.getElementById('tlSelector').addEventListener('change', (e) => {
+          activeTlId = e.target.value;
+          clearCellSelection();
+          renderProfileBanner(getActiveTl());
+          renderMatrix();
+        });
+
+        document.getElementById('tzSelector').addEventListener('change', (e) => {
+          const tl = getActiveTl();
+          if (tl) {
+            tl.timezone = e.target.value;
+            saveRoster();
+            renderProfileBanner(tl);
+            renderMatrix();
+          }
+        });
+
+        document.getElementById('viewScopeSelector').addEventListener('change', (e) => {
+          activeViewScope = e.target.value;
+          clearCellSelection();
+          renderMatrix();
+        });
+
+        const datePicker = document.getElementById('datePicker');
+        datePicker.value = baseAnchorDate;
+        datePicker.addEventListener('change', (e) => {
+          if (e.target.value) {
+            baseAnchorDate = e.target.value;
+            clearCellSelection();
+            renderMatrix();
+          }
+        });
+
+        document.getElementById('btnPrevWeek').addEventListener('click', () => {
+          baseAnchorDate = addDaysToIso(baseAnchorDate, -7);
+          datePicker.value = baseAnchorDate;
+          clearCellSelection();
+          renderMatrix();
+        });
+
+        document.getElementById('btnNextWeek').addEventListener('click', () => {
+          baseAnchorDate = addDaysToIso(baseAnchorDate, 7);
+          datePicker.value = baseAnchorDate;
+          clearCellSelection();
+          renderMatrix();
+        });
+
+        document.getElementById('btnToday').addEventListener('click', () => {
+          baseAnchorDate = new Date().toISOString().split('T')[0];
+          datePicker.value = baseAnchorDate;
+          clearCellSelection();
+          renderMatrix();
+        });
+
+        // 1. AUTO-FILL SHIFT BUTTON
+        document.getElementById('btnAutoFillShift').addEventListener('click', () => {
+          if (isScheduleLocked) { 
+            showToast('Schedule is Locked by Admin. Click the red "Locked" button (password: gmscc) to unlock.', 'warning'); 
+            return; 
+          }
+          const tl = getActiveTl();
+          if (!tl) { 
+            showToast('Please add or select a Team Leader first.', 'warning'); 
+            return; 
+          }
+          populateModalDates('afDateList', 'working');
+          showModal('autoFillModal');
+        });
+        document.getElementById('btnCloseAfModal').addEventListener('click', () => hideModal('autoFillModal'));
+        document.getElementById('btnAfPresetWorking').addEventListener('click', () => populateModalDates('afDateList', 'working'));
+        document.getElementById('btnAfPresetAll').addEventListener('click', () => populateModalDates('afDateList', 'all'));
+        document.getElementById('btnAfPresetNone').addEventListener('click', () => {
+          document.querySelectorAll('#afDateList .modal-date-chk').forEach(c => c.checked = false);
+        });
+
+        document.getElementById('btnConfirmAutoFill').addEventListener('click', () => {
+          if (isScheduleLocked) return;
+          const tl = getActiveTl();
+          if (!tl) return;
+          const tlSched = getTlSchedule(tl.id);
+          const mode = document.querySelector('input[name="afMode"]:checked').value;
+
+          let filledSlots = 0;
+          document.querySelectorAll('#afDateList .modal-date-chk:checked').forEach(chk => {
+            const isoDate = chk.value;
+            if (isDateLockedByRule(isoDate)) return;
+            const shiftSlots = getShiftSlotsForDate(tl, isoDate);
+            shiftSlots.forEach(s => {
+              const coord = `${isoDate}_${s}`;
+              if (mode === 'overwrite' || !tlSched[coord]) {
+                tlSched[coord] = { status: 'Available', agent: '' };
+                filledSlots++;
+              }
+            });
+          });
+          saveTlSchedule(tl.id);
+          renderMatrix();
+          hideModal('autoFillModal');
+          showToast(`Auto-filled ${filledSlots} shift slot(s) for ${tl.name}.`, 'success');
+        });
+
+        // 2. INSERT LUNCH BUTTON
+        populateLunchTimeSlots();
+        document.getElementById('btnInsertLunch').addEventListener('click', () => {
+          if (isScheduleLocked) { 
+            showToast('Schedule is Locked by Admin. Click the red "Locked" button (password: gmscc) to unlock.', 'warning'); 
+            return; 
+          }
+          const tl = getActiveTl();
+          if (!tl) { 
+            showToast('Please add or select a Team Leader first.', 'warning'); 
+            return; 
+          }
+          populateLunchTimeSlots();
+          populateModalDates('lunchDateList', 'working');
+          showModal('insertLunchModal');
+        });
+        document.getElementById('btnCloseLunchModal').addEventListener('click', () => hideModal('insertLunchModal'));
+
+        document.getElementById('btnConfirmLunch').addEventListener('click', () => {
+          if (isScheduleLocked) return;
+          const tl = getActiveTl();
+          if (!tl) return;
+          const tlSched = getTlSchedule(tl.id);
+          const startSlot = parseInt(document.getElementById('lunchStartTime').value, 10);
+          const durationMins = parseInt(document.getElementById('lunchDuration').value, 10);
+          const slotsCount = Math.floor(durationMins / 30);
+
+          let daysUpdated = 0;
+          document.querySelectorAll('#lunchDateList .modal-date-chk:checked').forEach(chk => {
+            const isoDate = chk.value;
+            if (isDateLockedByRule(isoDate)) return;
+            for (let i = 0; i < slotsCount; i++) {
+              const slot = startSlot + i;
+              if (slot < 48) tlSched[`${isoDate}_${slot}`] = { status: 'Lunch', agent: '' };
+            }
+            daysUpdated++;
+          });
+          saveTlSchedule(tl.id);
+          renderMatrix();
+          hideModal('insertLunchModal');
+          showToast(`Inserted lunch across ${daysUpdated} day(s) for ${tl.name}.`, 'success');
+        });
+
+        // 3. FILL AS UNAVAILABLE BUTTON
+        document.getElementById('btnFillUnavailable').addEventListener('click', () => {
+          if (isScheduleLocked) { 
+            showToast('Schedule is Locked by Admin. Click the red "Locked" button (password: gmscc) to unlock.', 'warning'); 
+            return; 
+          }
+          const tl = getActiveTl();
+          if (!tl) { 
+            showToast('Please add or select a Team Leader first.', 'warning'); 
+            return; 
+          }
+          populateModalDates('unavailDateList', 'working');
+          showModal('fillUnavailableModal');
+        });
+        document.getElementById('btnCloseUnavailModal').addEventListener('click', () => hideModal('fillUnavailableModal'));
+
+        document.getElementById('btnConfirmUnavailable').addEventListener('click', () => {
+          if (isScheduleLocked) return;
+          const tl = getActiveTl();
+          if (!tl) return;
+          const tlSched = getTlSchedule(tl.id);
+          const mode = document.querySelector('input[name="unavailMode"]:checked').value;
+
+          let filledSlots = 0;
+          document.querySelectorAll('#unavailDateList .modal-date-chk:checked').forEach(chk => {
+            const isoDate = chk.value;
+            if (isDateLockedByRule(isoDate)) return;
+            const shiftSlots = getShiftSlotsForDate(tl, isoDate);
+            shiftSlots.forEach(s => {
+              const coord = `${isoDate}_${s}`;
+              if (mode === 'overwrite' || !tlSched[coord]) {
+                tlSched[coord] = { status: 'Unavailable', agent: '' };
+                filledSlots++;
+              }
+            });
+          });
+          saveTlSchedule(tl.id);
+          renderMatrix();
+          hideModal('fillUnavailableModal');
+          showToast(`Marked ${filledSlots} shift slot(s) as Unavailable for ${tl.name}.`, 'success');
+        });
+
+        // 4. CLEAR DATES BUTTON
+        document.getElementById('btnClearDates').addEventListener('click', () => {
+          if (isScheduleLocked) { 
+            showToast('Schedule is Locked by Admin. Click the red "Locked" button (password: gmscc) to unlock.', 'warning'); 
+            return; 
+          }
+          const tl = getActiveTl();
+          if (!tl) { 
+            showToast('Please add or select a Team Leader first.', 'warning'); 
+            return; 
+          }
+          populateModalDates('clearDateList', 'all');
+          showModal('clearDatesModal');
+        });
+        document.getElementById('btnCloseClearModal').addEventListener('click', () => hideModal('clearDatesModal'));
+
+        document.getElementById('btnConfirmClear').addEventListener('click', () => {
+          if (isScheduleLocked) return;
+          const tl = getActiveTl();
+          if (!tl) return;
+          const tlSched = getTlSchedule(tl.id);
+
+          let clearedDays = 0;
+          document.querySelectorAll('#clearDateList .modal-date-chk:checked').forEach(chk => {
+            const isoDate = chk.value;
+            if (isDateLockedByRule(isoDate)) return;
+            for (let s = 0; s < 48; s++) delete tlSched[`${isoDate}_${s}`];
+            clearedDays++;
+          });
+          saveTlSchedule(tl.id);
+          renderMatrix();
+          hideModal('clearDatesModal');
+          showToast(`Cleared plotted slots across ${clearedDays} day(s) for ${tl.name}.`, 'info');
+        });
+
+        // BULK TOOLBAR
+        document.getElementById('btnBulkApply').addEventListener('click', () => {
+          if (isScheduleLocked) return;
+          const status = document.getElementById('bulkStatusSelect').value;
+          const agent = document.getElementById('bulkAgentInput').value.trim();
+          const tl = getActiveTl();
+          if (!tl) return;
+          const tlSched = getTlSchedule(tl.id);
+
+          selectedCells.forEach(coord => {
+            const [isoDate] = coord.split('_');
+            if (!isDateLockedByRule(isoDate)) {
+              if (status === 'Blank') delete tlSched[coord];
+              else tlSched[coord] = { status, agent };
+            }
+          });
+          saveTlSchedule(tl.id);
+          clearCellSelection();
+          renderMatrix();
+        });
+        document.getElementById('btnBulkCancel').addEventListener('click', clearCellSelection);
+
+        // GUIDE MODAL
+        document.getElementById('btnGuide').addEventListener('click', () => showModal('guideModal'));
+        document.getElementById('btnCloseGuideModal').addEventListener('click', () => hideModal('guideModal'));
+        document.getElementById('btnDoneGuideModal').addEventListener('click', () => hideModal('guideModal'));
+
+        // MANAGE TLS MODAL
+        document.getElementById('btnManageTLs').addEventListener('click', () => {
+          resetTlForm();
+          renderRosterTable();
+          showModal('manageTlsModal');
+        });
+        document.getElementById('btnCloseManageModal').addEventListener('click', () => hideModal('manageTlsModal'));
+
+        // ADD / UPDATE SUPERVISOR ACTION
+        document.getElementById('btnSaveTlAction').addEventListener('click', () => {
+          const nameInput = document.getElementById('inputTlName');
+          const teamInput = document.getElementById('inputTlTeam');
+          const shiftInput = document.getElementById('inputTlShift');
+          const offInput = document.getElementById('inputTlOff');
+          const tzInput = document.getElementById('inputTlTz');
+
+          const rawName = nameInput.value.trim();
+          const shiftVal = shiftInput.value.trim();
+          if (!rawName || !shiftVal) { 
+            showToast('Please provide supervisor Name and Shift Hours.', 'warning'); 
+            return; 
+          }
+
+          const daysOffArr = offInput.value ? offInput.value.split(/[,\/\s\-–]+/).map(s => s.trim()).filter(Boolean) : ['Saturday', 'Sunday'];
+
+          if (editingTlId) {
+            const tl = teamLeaders.find(t => t.id === editingTlId);
+            if (tl) {
+              if (teamLeaders.some(t => t.id !== editingTlId && t.name.toLowerCase() === rawName.toLowerCase())) {
+                showToast(`Another supervisor named "${rawName}" already exists.`, 'warning');
+                return;
+              }
+              tl.name = rawName;
+              tl.team = teamInput.value.trim() || 'General';
+              tl.shift = shiftVal;
+              tl.daysOff = daysOffArr;
+              tl.timezone = tzInput.value || 'EST';
+              showToast(`Updated ${tl.name}. Plotted schedule sessions preserved.`, 'success');
+            }
+            resetTlForm();
+          } else {
+            if (teamLeaders.some(t => t.name.toLowerCase() === rawName.toLowerCase())) { 
+              showToast(`Supervisor "${rawName}" already exists.`, 'warning'); 
+              return; 
+            }
+            if (teamLeaders.length >= 100) { 
+              showToast('Maximum roster capacity of 100 reached.', 'warning'); 
+              return; 
+            }
+
+            const newTl = { 
+              id: 'tl_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4), 
+              name: rawName, 
+              team: teamInput.value.trim() || 'General', 
+              shift: shiftVal, 
+              daysOff: daysOffArr, 
+              timezone: tzInput.value || 'EST' 
+            };
+            teamLeaders.push(newTl);
+            if (!activeTlId) activeTlId = newTl.id;
+            nameInput.value = ''; teamInput.value = ''; shiftInput.value = ''; offInput.value = '';
+            showToast(`Added ${newTl.name} to roster.`, 'success');
+          }
+
+          saveRoster();
+          renderRosterTable();
+          renderSupervisorDropdown();
+          renderMatrix();
+        });
+
+        document.getElementById('btnCancelTlEdit').addEventListener('click', resetTlForm);
+
+        document.getElementById('btnAppendUpload').addEventListener('click', () => handleSpreadsheetUpload(false));
+        document.getElementById('btnReplaceUpload').addEventListener('click', () => handleSpreadsheetUpload(true));
+        
+        document.getElementById('btnRestoreSampleTls').addEventListener('click', () => {
+          let addedCount = 0;
+          DEFAULT_SAMPLE_ROSTER.forEach(sample => {
+            if (!teamLeaders.some(t => t.name.toLowerCase() === sample.name.toLowerCase())) {
+              teamLeaders.push({ ...sample });
+              addedCount++;
+            }
+          });
+          if (!activeTlId && teamLeaders.length > 0) activeTlId = teamLeaders[0].id;
+          saveRoster();
+          renderRosterTable();
+          renderSupervisorDropdown();
+          renderMatrix();
+          showToast(addedCount > 0 ? `Restored ${addedCount} sample supervisor(s).` : 'Sample supervisors are already in the roster.', 'info');
+        });
+
+        document.getElementById('btnClearAllTls').addEventListener('click', () => {
+          showConfirmDialog('Clear the entire supervisor roster list? (Individual supervisor schedules remain safely stored if re-added with the same name.)', () => {
+            teamLeaders = [];
+            activeTlId = null;
+            resetTlForm();
+            saveRoster();
+            renderRosterTable();
+            renderSupervisorDropdown();
+            renderMatrix();
+            showToast('Supervisor roster cleared.', 'info');
+          });
+        });
+
+        // ADMIN LOCK
+        document.getElementById('btnAdminLock').addEventListener('click', () => {
+          document.getElementById('inputAdminPassword').value = '';
+          showModal('adminLockModal');
+          setTimeout(() => document.getElementById('inputAdminPassword').focus(), 50);
+        });
+        document.getElementById('btnCloseAdminModal').addEventListener('click', () => hideModal('adminLockModal'));
+        document.getElementById('inputAdminPassword').addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') document.getElementById('btnSubmitAdminPassword').click();
+        });
+        document.getElementById('btnSubmitAdminPassword').addEventListener('click', () => {
+          if (document.getElementById('inputAdminPassword').value === adminPassword) {
+            isScheduleLocked = !isScheduleLocked;
+            saveLockState();
+            updateAdminLockUI();
+            clearCellSelection();
+            renderMatrix();
+            hideModal('adminLockModal');
+            showToast(isScheduleLocked ? 'Schedule is now LOCKED (Read-Only Mode).' : 'Schedule is now UNLOCKED.', isScheduleLocked ? 'warning' : 'success');
+          } else {
+            showToast('Incorrect admin password.', 'error');
+          }
+        });
+
+        // AUTO-LOCK RULES
+        document.getElementById('btnAutoLock').addEventListener('click', () => {
+          document.getElementById('chkEnableCutoff').checked = autoLockRules.cutoffEnabled;
+          document.getElementById('cutoffDateInput').value = autoLockRules.cutoffDate || '';
+          renderLockedDateTags();
+          showModal('autoLockRulesModal');
+        });
+        document.getElementById('btnCloseAutoLockModal').addEventListener('click', () => hideModal('autoLockRulesModal'));
+        document.getElementById('btnAddLockDate').addEventListener('click', () => {
+          const input = document.getElementById('inputSpecificLockDate');
+          if (input.value && !autoLockRules.lockedDates.includes(input.value)) {
+            autoLockRules.lockedDates.push(input.value);
+            renderLockedDateTags();
+            input.value = '';
+          }
+        });
+        document.getElementById('btnSaveAutoLockRules').addEventListener('click', () => {
+          autoLockRules.cutoffEnabled = document.getElementById('chkEnableCutoff').checked;
+          autoLockRules.cutoffDate = document.getElementById('cutoffDateInput').value;
+          saveRulesState();
+          hideModal('autoLockRulesModal');
+          renderMatrix();
+          showToast('Auto-lock rules applied.', 'success');
+        });
+
+        // EXPORT CSV
+        document.getElementById('btnExportCSV').addEventListener('click', () => {
+          if (!isScheduleLocked) { 
+            showToast('Export is available only when schedule is locked by Admin.', 'warning'); 
+            return; 
+          }
+          renderExportModal();
+          showModal('exportModal');
+        });
+        document.getElementById('btnCloseExportModal').addEventListener('click', () => hideModal('exportModal'));
+        document.getElementById('btnCloseExportModalBtn').addEventListener('click', () => hideModal('exportModal'));
+        document.getElementById('btnExportSelectAll').addEventListener('click', () => document.querySelectorAll('.export-tl-chk').forEach(c => c.checked = true));
+        document.getElementById('btnExportSelectNone').addEventListener('click', () => document.querySelectorAll('.export-tl-chk').forEach(c => c.checked = false));
+        document.getElementById('btnExportSelectActive').addEventListener('click', () => document.querySelectorAll('.export-tl-chk').forEach(c => c.checked = (c.dataset.hasActivity === 'true')));
+        document.getElementById('btnDownloadCsvConfirmed').addEventListener('click', generateAndDownloadCsv);
+
+        // SHARE VIEW MODAL HANDLERS
+        document.getElementById('btnShareView').addEventListener('click', () => {
+          const tl = getActiveTl();
+          const tlName = tl ? tl.name : 'All Supervisors';
+          const tz = tl ? (tl.timezone || 'EST') : 'EST';
+
+          document.getElementById('shareModalTlName').textContent = tlName;
+          document.getElementById('shareModalDate').textContent = formatIsoDateNice(baseAnchorDate);
+          document.getElementById('shareModalScope').textContent = activeViewScope === 'month' ? 'Monthly View' : `${activeViewScope} Week(s)`;
+          document.getElementById('shareModalTz').textContent = tz;
+
+          const cleanBase = window.location.href.split('#')[0].split('?')[0];
+          const queryParams = new URLSearchParams({
+            tl: activeTlId || '',
+            date: baseAnchorDate || '',
+            scope: activeViewScope || '1',
+            tz: tz
+          });
+          const shareUrl = `${cleanBase}?${queryParams.toString()}`;
+          const excelFormula = `=HYPERLINK("${shareUrl}", "Open ${tlName} Schedule")`;
+
+          document.getElementById('shareUrlInput').value = shareUrl;
+          document.getElementById('shareExcelFormulaInput').value = excelFormula;
+
+          document.getElementById('copyShareBtnText').textContent = 'Copy Link';
+          document.getElementById('copyExcelBtnText').textContent = 'Copy Formula';
+
+          showModal('shareViewModal');
+        });
+
+        document.getElementById('btnCloseShareModal').addEventListener('click', () => hideModal('shareViewModal'));
+        document.getElementById('btnCloseShareModalBtn').addEventListener('click', () => hideModal('shareViewModal'));
+
+        document.getElementById('btnCopyShareUrl').addEventListener('click', () => {
+          const input = document.getElementById('shareUrlInput');
+          input.select();
+          navigator.clipboard.writeText(input.value).then(() => {
+            document.getElementById('copyShareBtnText').textContent = 'Copied!';
+            setTimeout(() => { document.getElementById('copyShareBtnText').textContent = 'Copy Link'; }, 2000);
+          }).catch(() => {
+            document.execCommand('copy');
+            document.getElementById('copyShareBtnText').textContent = 'Copied!';
+            setTimeout(() => { document.getElementById('copyShareBtnText').textContent = 'Copy Link'; }, 2000);
+          });
+        });
+
+        document.getElementById('btnCopyExcelFormula').addEventListener('click', () => {
+          const input = document.getElementById('shareExcelFormulaInput');
+          input.select();
+          navigator.clipboard.writeText(input.value).then(() => {
+            document.getElementById('copyExcelBtnText').textContent = 'Copied!';
+            setTimeout(() => { document.getElementById('copyExcelBtnText').textContent = 'Copy Formula'; }, 2000);
+          }).catch(() => {
+            document.execCommand('copy');
+            document.getElementById('copyExcelBtnText').textContent = 'Copied!';
+            setTimeout(() => { document.getElementById('copyExcelBtnText').textContent = 'Copy Formula'; }, 2000);
+          });
+        });
+      }
+
+      function renderLockedDateTags() {
+        const container = document.getElementById('lockedDatesTagList');
+        container.innerHTML = '';
+        if (autoLockRules.lockedDates.length === 0) {
+          container.innerHTML = '<span class="text-slate-400 italic text-[11px]">No specific dates added.</span>';
+          return;
+        }
+        autoLockRules.lockedDates.forEach((d, idx) => {
+          const span = document.createElement('span');
+          span.className = 'bg-slate-100 text-slate-700 px-2 py-0.5 rounded text-[11px] font-semibold border border-slate-300 flex items-center space-x-1';
+          span.innerHTML = `<span>${d}</span><button type="button" class="text-slate-400 hover:text-rose-600 remove-lock-date" data-index="${idx}">✕</button>`;
+          container.appendChild(span);
+        });
+        container.querySelectorAll('.remove-lock-date').forEach(btn => {
+          btn.addEventListener('click', (e) => {
+            autoLockRules.lockedDates.splice(parseInt(e.currentTarget.dataset.index, 10), 1);
+            renderLockedDateTags();
+          });
+        });
+      }
+
+      function readUrlParameters() {
+        try {
+          const queryString = window.location.search || (window.location.hash.includes('?') ? window.location.hash.split('?')[1] : '');
+          const params = new URLSearchParams(queryString);
+          if (params.has('tl')) {
+            const requestedTl = params.get('tl');
+            if (teamLeaders.some(t => t.id === requestedTl)) {
+              activeTlId = requestedTl;
+            }
+          }
+          if (params.has('date')) {
+            const requestedDate = params.get('date');
+            if (/^\d{4}-\d{2}-\d{2}$/.test(requestedDate)) {
+              baseAnchorDate = requestedDate;
+              const datePicker = document.getElementById('datePicker');
+              if (datePicker) datePicker.value = requestedDate;
+            }
+          }
+          if (params.has('scope')) {
+            const requestedScope = params.get('scope');
+            if (['1', '2', '3', '4', 'month'].includes(requestedScope)) {
+              activeViewScope = requestedScope;
+              const scopeSelector = document.getElementById('viewScopeSelector');
+              if (scopeSelector) scopeSelector.value = requestedScope;
+            }
+          }
+          if (params.has('tz')) {
+            const requestedTz = params.get('tz').toUpperCase();
+            const curTl = getActiveTl();
+            if (curTl && ['EST', 'EDT', 'GMT', 'BST'].includes(requestedTz)) {
+              curTl.timezone = requestedTz;
+            }
+          }
+        } catch (e) {
+          console.warn("Could not parse URL parameters:", e);
+        }
+      }
+
+      function init() {
+        loadState();
+        readUrlParameters();
+        renderSupervisorDropdown();
+        updateAdminLockUI();
+        renderMatrix();
+        setupEventListeners();
+        startFirebaseLiveListeners();
+      }
+
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+      } else {
+        init();
+      }
+    })();
+  </script>
+</body>
+</html>
