@@ -118,10 +118,6 @@
             <span id="activeTzBadge" class="bg-amber-100 text-amber-800 text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-300">
               EST
             </span>
-            <span id="firebaseSyncBadge" class="inline-flex items-center space-x-1 bg-emerald-50 text-emerald-700 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-200" title="Connected to Firebase Firestore">
-              <span id="firebaseSyncDot" class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-              <span id="firebaseSyncText">Live Sync</span>
-            </span>
           </div>
           <p class="text-[11px] text-slate-500 font-medium">30-min granular shift planning, 1-on-1 coaching & capacity tracker</p>
         </div>
@@ -987,8 +983,11 @@
       // -------------------------------------------------------------
       // ISOLATED PER-TL STORAGE ACCESSORS
       // -------------------------------------------------------------
+
+
+
             // -------------------------------------------------------------
-      // FIREBASE FIRESTORE REAL-TIME MULTI-USER SYNC
+      // FIREBASE FIRESTORE REAL-TIME SYNC
       // -------------------------------------------------------------
       const firebaseConfig = {
         apiKey: "AIzaSyCYg8Vi4dgEnI3e0kD-kqzmWgAH_QG17BE",
@@ -1002,24 +1001,6 @@
       let db = null;
       const subscribedTlIds = new Set();
 
-      function updateFirebaseSyncUI(state, label) {
-        const badge = document.getElementById('firebaseSyncBadge');
-        const dot = document.getElementById('firebaseSyncDot');
-        const text = document.getElementById('firebaseSyncText');
-        if (!badge || !dot || !text) return;
-        text.textContent = label;
-        if (state === 'live') {
-          badge.className = 'inline-flex items-center space-x-1 bg-emerald-50 text-emerald-700 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-200';
-          dot.className = 'w-1.5 h-1.5 rounded-full bg-emerald-500';
-        } else if (state === 'syncing') {
-          badge.className = 'inline-flex items-center space-x-1 bg-amber-50 text-amber-700 text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-200';
-          dot.className = 'w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping';
-        } else {
-          badge.className = 'inline-flex items-center space-x-1 bg-slate-100 text-slate-600 text-[10px] font-bold px-2 py-0.5 rounded-full border border-slate-300';
-          dot.className = 'w-1.5 h-1.5 rounded-full bg-slate-400';
-        }
-      }
-
       try {
         if (typeof firebase !== 'undefined') {
           if (!firebase.apps.length) {
@@ -1029,44 +1010,30 @@
         }
       } catch (e) {
         console.warn('Firebase initialization fallback to local storage:', e);
-        updateFirebaseSyncUI('offline', 'Local Cache');
       }
 
       function syncGlobalMetaToFirebase() {
         if (!db) return;
-        updateFirebaseSyncUI('syncing', 'Syncing...');
         db.collection('tracker_meta').doc('global').set({
           teamLeaders: teamLeaders,
           isScheduleLocked: isScheduleLocked,
           autoLockRules: autoLockRules,
           updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-        }, { merge: true })
-        .then(() => updateFirebaseSyncUI('live', 'Live Sync'))
-        .catch((err) => {
-          console.warn('Firestore meta sync error:', err);
-          updateFirebaseSyncUI('offline', 'Local Cache');
-        });
+        }, { merge: true }).catch(err => console.warn('Firestore meta sync error:', err));
       }
 
       function syncTlScheduleToFirebase(tlId) {
         if (!db || !tlId) return;
-        updateFirebaseSyncUI('syncing', 'Syncing...');
         db.collection('tl_schedules').doc(tlId).set({
           slots: tlSchedulesMap[tlId] || {},
           updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-        })
-        .then(() => updateFirebaseSyncUI('live', 'Live Sync'))
-        .catch((err) => {
-          console.warn('Firestore TL schedule sync error:', err);
-          updateFirebaseSyncUI('offline', 'Local Cache');
-        });
+        }).catch(err => console.warn('Firestore TL schedule sync error:', err));
       }
 
       function subscribeToTlSchedule(tlId) {
         if (!db || !tlId || subscribedTlIds.has(tlId)) return;
         subscribedTlIds.add(tlId);
         db.collection('tl_schedules').doc(tlId).onSnapshot((doc) => {
-          updateFirebaseSyncUI('live', 'Live Sync');
           if (!doc.exists) return;
           const data = doc.data();
           tlSchedulesMap[tlId] = data.slots || {};
@@ -1074,24 +1041,15 @@
           if (tlId === activeTlId) {
             renderMatrix();
           }
-        }, (err) => {
-          console.warn('Firestore schedule listener error:', err);
-          updateFirebaseSyncUI('offline', 'Local Cache');
-        });
+        }, err => console.warn('Firestore schedule listener error:', err));
       }
 
       function startFirebaseLiveListeners() {
-        if (!db) {
-          updateFirebaseSyncUI('offline', 'Local Cache');
-          return;
-        }
-        // Subscribe to all currently loaded TLs right away
+        if (!db) return;
         teamLeaders.forEach(tl => subscribeToTlSchedule(tl.id));
 
         db.collection('tracker_meta').doc('global').onSnapshot((doc) => {
-          updateFirebaseSyncUI('live', 'Live Sync');
           if (!doc.exists) {
-            // Initialize global meta doc in Firestore on first-ever run
             syncGlobalMetaToFirebase();
             teamLeaders.forEach(tl => {
               if (Object.keys(getTlSchedule(tl.id)).length > 0) {
@@ -1120,10 +1078,7 @@
           renderSupervisorDropdown();
           updateAdminLockUI();
           renderMatrix();
-        }, (err) => {
-          console.warn('Firestore global listener error:', err);
-          updateFirebaseSyncUI('offline', 'Local Cache');
-        });
+        }, err => console.warn('Firestore global listener error:', err));
       }
 
       function getTlSchedule(tlId) {
