@@ -605,25 +605,73 @@
         <button id="btnCloseExportModal" type="button" class="text-slate-400 hover:text-slate-600 text-lg">✕</button>
       </div>
 
-      <div class="my-4 space-y-3">
-        <div class="flex items-center justify-between">
-          <span class="font-bold text-slate-700">Select Supervisors to Include:</span>
-          <div class="flex space-x-1.5">
-            <button id="btnExportSelectActive" type="button" class="px-2 py-0.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-800 rounded font-bold text-[10px]">Only with Activity</button>
-            <button id="btnExportSelectAll" type="button" class="px-2 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded font-bold text-[10px]">All</button>
-            <button id="btnExportSelectNone" type="button" class="px-2 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded font-bold text-[10px]">None</button>
+      <div class="my-4 space-y-3.5">
+        <!-- Activity Filter Section -->
+        <div class="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2">
+          <div class="flex items-center justify-between">
+            <span class="font-bold text-slate-800 flex items-center">
+              <i class="fa-solid fa-filter text-indigo-600 mr-1.5"></i> Filter Activities to Download:
+            </span>
+            <div class="flex space-x-1.5">
+              <button id="btnExportActOfflinePreset" type="button" class="px-2 py-0.5 bg-indigo-100 hover:bg-indigo-200 text-indigo-800 rounded font-bold text-[10px]">WFM Offline (Default)</button>
+              <button id="btnExportActAll" type="button" class="px-2 py-0.5 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded font-bold text-[10px]">All</button>
+              <button id="btnExportActNone" type="button" class="px-2 py-0.5 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded font-bold text-[10px]">None</button>
+            </div>
+          </div>
+          <div class="grid grid-cols-3 gap-1.5 pt-0.5">
+            <label class="flex items-center space-x-1.5 bg-white px-2 py-1.5 rounded-lg border border-slate-200 cursor-pointer hover:bg-emerald-50/50">
+              <input type="checkbox" value="Available" checked class="rounded text-emerald-600 export-activity-chk">
+              <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+              <span class="font-semibold text-slate-800">Available</span>
+            </label>
+            <label class="flex items-center space-x-1.5 bg-white px-2 py-1.5 rounded-lg border border-slate-200 cursor-pointer hover:bg-purple-50/50">
+              <input type="checkbox" value="Coaching" checked class="rounded text-purple-600 export-activity-chk">
+              <span class="w-2 h-2 rounded-full bg-purple-500"></span>
+              <span class="font-semibold text-slate-800">Coaching</span>
+            </label>
+            <label class="flex items-center space-x-1.5 bg-white px-2 py-1.5 rounded-lg border border-slate-200 cursor-pointer hover:bg-pink-50/50">
+              <input type="checkbox" value="PMC" checked class="rounded text-pink-600 export-activity-chk">
+              <span class="w-2 h-2 rounded-full bg-pink-500"></span>
+              <span class="font-semibold text-slate-800">PMC</span>
+            </label>
+            <label class="flex items-center space-x-1.5 bg-white px-2 py-1.5 rounded-lg border border-slate-200 cursor-pointer hover:bg-sky-50/50">
+              <input type="checkbox" value="TMH" checked class="rounded text-sky-600 export-activity-chk">
+              <span class="w-2 h-2 rounded-full bg-sky-500"></span>
+              <span class="font-semibold text-slate-800">TMH</span>
+            </label>
+            <label class="flex items-center space-x-1.5 bg-white px-2 py-1.5 rounded-lg border border-slate-200 cursor-pointer hover:bg-amber-50/50">
+              <input type="checkbox" value="Lunch" class="rounded text-amber-500 export-activity-chk">
+              <span class="w-2 h-2 rounded-full bg-amber-500"></span>
+              <span class="font-semibold text-slate-800">Lunch</span>
+            </label>
+            <label class="flex items-center space-x-1.5 bg-white px-2 py-1.5 rounded-lg border border-slate-200 cursor-pointer hover:bg-rose-50/50">
+              <input type="checkbox" value="Unavailable" class="rounded text-rose-600 export-activity-chk">
+              <span class="w-2 h-2 rounded-full bg-rose-500"></span>
+              <span class="font-semibold text-slate-800">Unavailable</span>
+            </label>
           </div>
         </div>
 
-        <div id="exportTlCheckList" class="max-h-56 overflow-y-auto border border-slate-200 rounded-xl p-2 space-y-1.5 custom-scrollbar"></div>
+        <!-- Supervisor Selection Section -->
+        <div>
+          <div class="flex items-center justify-between mb-1.5">
+            <span class="font-bold text-slate-700">Select Supervisors to Include:</span>
+            <div class="flex space-x-1.5">
+              <button id="btnExportSelectActive" type="button" class="px-2 py-0.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-800 rounded font-bold text-[10px]">Only with Matching Activity</button>
+              <button id="btnExportSelectAll" type="button" class="px-2 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded font-bold text-[10px]">All</button>
+              <button id="btnExportSelectNone" type="button" class="px-2 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded font-bold text-[10px]">None</button>
+            </div>
+          </div>
+
+          <div id="exportTlCheckList" class="max-h-48 overflow-y-auto border border-slate-200 rounded-xl p-2 space-y-1.5 custom-scrollbar"></div>
+        </div>
 
         <div class="bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-[11px] text-slate-600 space-y-1">
           <div class="font-semibold text-slate-800 flex items-center">
-            <i class="fa-solid fa-circle-check text-emerald-600 mr-1.5"></i> Export Constraints Active:
+            <i class="fa-solid fa-circle-check text-emerald-600 mr-1.5"></i> Export Format Summary:
           </div>
-          <div>• Strictly includes offline available activities: <strong>Available, Coaching, PMC, TMH</strong>.</div>
-          <div>• Excludes unplotted blank shift hours, days off, and lunch breaks.</div>
-          <div>• Encoded with <strong>UTF-8 BOM</strong> for flawless opening in Microsoft Excel.</div>
+          <div id="exportActiveFilterSummary">• Exporting selected activities: <strong>Available, Coaching, PMC, TMH</strong>.</div>
+          <div>• Encoded with <strong>UTF-8 BOM</strong> for clean opening in Microsoft Excel.</div>
         </div>
       </div>
 
@@ -1016,13 +1064,33 @@
         }).catch(err => console.warn('Firestore lock sync error:', err));
       }
 
-      // Isolated sync: ONLY syncs auto-lock date rules (never touches roster, lock, or schedules)
-      function syncRulesToFirebase() {
+      // Atomic isolated sync: ONLY updates auto-lock date rules (never touches roster, lock, or any TL schedule data)
+      function mutateRulesInFirebase(mutatorFn) {
         if (!db) return;
-        db.collection('tracker_meta').doc('rules').set({
-          autoLockRules: autoLockRules,
-          updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-        }).catch(err => console.warn('Firestore rules sync error:', err));
+        const rulesRef = db.collection('tracker_meta').doc('rules');
+        db.runTransaction(async (transaction) => {
+          const doc = await transaction.get(rulesRef);
+          const currentRules = (doc.exists && doc.data().autoLockRules)
+            ? doc.data().autoLockRules
+            : { cutoffEnabled: false, cutoffDate: '', lockedDates: [] };
+          const updatedRules = mutatorFn(currentRules);
+          transaction.set(rulesRef, {
+            autoLockRules: updatedRules,
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+          });
+          return updatedRules;
+        }).then((committedRules) => {
+          if (committedRules) {
+            autoLockRules = committedRules;
+            localStorage.setItem(STORAGE_KEY_RULES, JSON.stringify(autoLockRules));
+          }
+        }).catch(err => {
+          console.warn('Firestore rules transaction fallback:', err);
+          rulesRef.set({
+            autoLockRules: autoLockRules,
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+          }).catch(e => console.warn('Firestore rules set error:', e));
+        });
       }
 
       // Granular per-slot merge sync: ONLY modifies the specific changed coordinates on this TL's schedule document
@@ -1124,17 +1192,31 @@
           }
         }, err => console.warn('Firestore lock listener error:', err));
 
-        // 3. Listen ONLY to Auto-Lock Rules changes (never touches roster, lock, or schedule data)
+        // 3. Listen ONLY to Auto-Lock Rules changes (never touches roster, lock, or any TL schedule data)
         db.collection('tracker_meta').doc('rules').onSnapshot((doc) => {
           if (!doc.exists) {
-            syncRulesToFirebase();
+            mutateRulesInFirebase(() => ({
+              cutoffEnabled: Boolean(autoLockRules.cutoffEnabled),
+              cutoffDate: autoLockRules.cutoffDate || '',
+              lockedDates: Array.isArray(autoLockRules.lockedDates) ? [...autoLockRules.lockedDates] : []
+            }));
             return;
           }
           if (doc.metadata.hasPendingWrites) return;
           const data = doc.data();
           if (data.autoLockRules) {
-            autoLockRules = data.autoLockRules;
+            autoLockRules = {
+              cutoffEnabled: Boolean(data.autoLockRules.cutoffEnabled),
+              cutoffDate: data.autoLockRules.cutoffDate || '',
+              lockedDates: Array.isArray(data.autoLockRules.lockedDates) ? data.autoLockRules.lockedDates : []
+            };
             localStorage.setItem(STORAGE_KEY_RULES, JSON.stringify(autoLockRules));
+            // Remove any currently selected cells that fall on newly auto-locked dates without clearing other selections
+            for (const coord of Array.from(selectedCells)) {
+              const isoDate = coord.split('_')[0];
+              if (isDateLockedByRule(isoDate)) selectedCells.delete(coord);
+            }
+            updateBulkToolbar();
             renderMatrix();
           }
         }, err => console.warn('Firestore rules listener error:', err));
@@ -1226,7 +1308,7 @@
 
       function saveRosterLocalOnly() { localStorage.setItem(STORAGE_KEY_ROSTER, JSON.stringify(teamLeaders)); }
       function saveLockState() { localStorage.setItem(STORAGE_KEY_LOCK, JSON.stringify(isScheduleLocked)); syncLockToFirebase(); }
-      function saveRulesState() { localStorage.setItem(STORAGE_KEY_RULES, JSON.stringify(autoLockRules)); syncRulesToFirebase(); }
+      function saveRulesLocalOnly() { localStorage.setItem(STORAGE_KEY_RULES, JSON.stringify(autoLockRules)); }
 
       function getActiveTl() {
         if (!activeTlId && teamLeaders.length > 0) activeTlId = teamLeaders[0].id;
@@ -1617,35 +1699,55 @@
         });
       }
 
-      function renderExportModal() {
+      function getSelectedExportActivities() {
+        const selected = [];
+        document.querySelectorAll('.export-activity-chk:checked').forEach(chk => selected.push(chk.value));
+        return selected;
+      }
+
+      function renderExportModal(preserveTlSelection = false) {
         const container = document.getElementById('exportTlCheckList');
+        const previouslyChecked = new Set();
+        if (preserveTlSelection) {
+          document.querySelectorAll('.export-tl-chk:checked').forEach(chk => previouslyChecked.add(chk.value));
+        }
+
+        const allowedActivities = new Set(getSelectedExportActivities());
+        const summaryEl = document.getElementById('exportActiveFilterSummary');
+        if (summaryEl) {
+          summaryEl.innerHTML = allowedActivities.size > 0
+            ? `• Exporting selected activities: <strong>${Array.from(allowedActivities).join(', ')}</strong>.`
+            : `• <span class="text-rose-600 font-bold">No activity types selected. Please check at least one activity above.</span>`;
+        }
+
         container.innerHTML = '';
         const visibleDates = new Set(getVisibleDates());
 
         teamLeaders.forEach(tl => {
-          let activeSlotsCount = 0;
+          let matchingSlotsCount = 0;
           const tlSched = getTlSchedule(tl.id);
           Object.keys(tlSched).forEach(coord => {
             const isoDate = coord.split('_')[0];
             if (visibleDates.has(isoDate)) {
               const status = tlSched[coord]?.status;
-              if (['Available', 'Coaching', 'PMC', 'TMH'].includes(status)) activeSlotsCount++;
+              if (allowedActivities.has(status)) matchingSlotsCount++;
             }
           });
 
-          const hasActivity = activeSlotsCount > 0;
-          const activeHours = (activeSlotsCount * 0.5).toFixed(1);
+          const hasActivity = matchingSlotsCount > 0;
+          const activeHours = (matchingSlotsCount * 0.5).toFixed(1);
+          const shouldCheck = preserveTlSelection ? previouslyChecked.has(tl.id) : hasActivity;
 
           const div = document.createElement('label');
           div.className = 'flex items-center justify-between p-2 rounded-lg border border-slate-200 hover:bg-slate-50 cursor-pointer';
           div.innerHTML = `
             <div class="flex items-center space-x-2">
-              <input type="checkbox" value="${tl.id}" data-has-activity="${hasActivity}" ${hasActivity ? 'checked' : ''} class="rounded text-emerald-600 export-tl-chk">
+              <input type="checkbox" value="${tl.id}" data-has-activity="${hasActivity}" ${shouldCheck ? 'checked' : ''} class="rounded text-emerald-600 export-tl-chk">
               <span class="font-bold text-slate-800">${tl.name}</span>
               <span class="text-slate-400">(${tl.team || 'General'})</span>
             </div>
             <div>
-              ${hasActivity ? `<span class="bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded text-[10px]">${activeHours}h Active</span>` : `<span class="bg-slate-100 text-slate-500 font-medium px-2 py-0.5 rounded text-[10px]">No Offline Activity</span>`}
+              ${hasActivity ? `<span class="bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded text-[10px]">${activeHours}h Matching</span>` : `<span class="bg-slate-100 text-slate-500 font-medium px-2 py-0.5 rounded text-[10px]">0h Matching</span>`}
             </div>
           `;
           container.appendChild(div);
@@ -1653,6 +1755,13 @@
       }
 
       function generateAndDownloadCsv() {
+        const selectedActivities = getSelectedExportActivities();
+        if (selectedActivities.length === 0) {
+          showToast('Please select at least one activity type to download.', 'warning');
+          return;
+        }
+        const allowedSet = new Set(selectedActivities);
+
         const selectedTlIds = [];
         document.querySelectorAll('.export-tl-chk:checked').forEach(chk => selectedTlIds.push(chk.value));
         if (selectedTlIds.length === 0) { 
@@ -1673,7 +1782,7 @@
           visibleDates.forEach(isoDate => {
             for (let s = 0; s < 48; s++) {
               const data = tlSched[`${isoDate}_${s}`];
-              if (data && ['Available', 'Coaching', 'PMC', 'TMH'].includes(data.status)) {
+              if (data && allowedSet.has(data.status)) {
                 rows.push([
                   `"${(tl.team || 'General').replace(/"/g, '""')}"`,
                   `"${isoDate}"`,
@@ -1688,7 +1797,7 @@
         });
 
         if (totalExportedRecords === 0) {
-          showToast('No plotted offline available activities (Available, Coaching, PMC, TMH) found for selected TLs.', 'warning');
+          showToast(`No plotted slots matching (${selectedActivities.join(', ')}) found for selected TLs.`, 'warning');
           return;
         }
 
@@ -2395,29 +2504,49 @@
           }
         });
 
-        // AUTO-LOCK RULES
+        // AUTO-LOCK RULES (Isolated draft state + atomic sync so existing schedules, roster, and lock state are never overridden)
+        let draftLockedDates = [];
         document.getElementById('btnAutoLock').addEventListener('click', () => {
-          document.getElementById('chkEnableCutoff').checked = autoLockRules.cutoffEnabled;
+          document.getElementById('chkEnableCutoff').checked = Boolean(autoLockRules.cutoffEnabled);
           document.getElementById('cutoffDateInput').value = autoLockRules.cutoffDate || '';
-          renderLockedDateTags();
+          draftLockedDates = Array.isArray(autoLockRules.lockedDates) ? [...autoLockRules.lockedDates] : [];
+          renderLockedDateTags(draftLockedDates);
           showModal('autoLockRulesModal');
         });
         document.getElementById('btnCloseAutoLockModal').addEventListener('click', () => hideModal('autoLockRulesModal'));
         document.getElementById('btnAddLockDate').addEventListener('click', () => {
           const input = document.getElementById('inputSpecificLockDate');
-          if (input.value && !autoLockRules.lockedDates.includes(input.value)) {
-            autoLockRules.lockedDates.push(input.value);
-            renderLockedDateTags();
+          if (input.value && !draftLockedDates.includes(input.value)) {
+            draftLockedDates.push(input.value);
+            renderLockedDateTags(draftLockedDates);
             input.value = '';
           }
         });
         document.getElementById('btnSaveAutoLockRules').addEventListener('click', () => {
-          autoLockRules.cutoffEnabled = document.getElementById('chkEnableCutoff').checked;
-          autoLockRules.cutoffDate = document.getElementById('cutoffDateInput').value;
-          saveRulesState();
+          const nextCutoffEnabled = document.getElementById('chkEnableCutoff').checked;
+          const nextCutoffDate = document.getElementById('cutoffDateInput').value;
+          const nextLockedDates = [...draftLockedDates];
+
+          autoLockRules = {
+            cutoffEnabled: nextCutoffEnabled,
+            cutoffDate: nextCutoffDate,
+            lockedDates: nextLockedDates
+          };
+          saveRulesLocalOnly();
+          mutateRulesInFirebase(() => ({
+            cutoffEnabled: nextCutoffEnabled,
+            cutoffDate: nextCutoffDate,
+            lockedDates: nextLockedDates
+          }));
+          // Deselect only cells that are now covered by the updated auto-lock rules
+          for (const coord of Array.from(selectedCells)) {
+            const isoDate = coord.split('_')[0];
+            if (isDateLockedByRule(isoDate)) selectedCells.delete(coord);
+          }
+          updateBulkToolbar();
           hideModal('autoLockRulesModal');
           renderMatrix();
-          showToast('Auto-lock rules applied.', 'success');
+          showToast('Auto-lock rules applied without affecting existing schedules or roster.', 'success');
         });
 
         // EXPORT CSV
@@ -2431,20 +2560,37 @@
         });
         document.getElementById('btnCloseExportModal').addEventListener('click', () => hideModal('exportModal'));
         document.getElementById('btnCloseExportModalBtn').addEventListener('click', () => hideModal('exportModal'));
+        document.querySelectorAll('.export-activity-chk').forEach(chk => {
+          chk.addEventListener('change', () => renderExportModal(true));
+        });
+        document.getElementById('btnExportActOfflinePreset').addEventListener('click', () => {
+          const defaults = new Set(['Available', 'Coaching', 'PMC', 'TMH']);
+          document.querySelectorAll('.export-activity-chk').forEach(c => c.checked = defaults.has(c.value));
+          renderExportModal(true);
+        });
+        document.getElementById('btnExportActAll').addEventListener('click', () => {
+          document.querySelectorAll('.export-activity-chk').forEach(c => c.checked = true);
+          renderExportModal(true);
+        });
+        document.getElementById('btnExportActNone').addEventListener('click', () => {
+          document.querySelectorAll('.export-activity-chk').forEach(c => c.checked = false);
+          renderExportModal(true);
+        });
+
         document.getElementById('btnExportSelectAll').addEventListener('click', () => document.querySelectorAll('.export-tl-chk').forEach(c => c.checked = true));
         document.getElementById('btnExportSelectNone').addEventListener('click', () => document.querySelectorAll('.export-tl-chk').forEach(c => c.checked = false));
         document.getElementById('btnExportSelectActive').addEventListener('click', () => document.querySelectorAll('.export-tl-chk').forEach(c => c.checked = (c.dataset.hasActivity === 'true')));
         document.getElementById('btnDownloadCsvConfirmed').addEventListener('click', generateAndDownloadCsv);
       }
 
-      function renderLockedDateTags() {
+      function renderLockedDateTags(targetList = draftLockedDates) {
         const container = document.getElementById('lockedDatesTagList');
         container.innerHTML = '';
-        if (autoLockRules.lockedDates.length === 0) {
+        if (!Array.isArray(targetList) || targetList.length === 0) {
           container.innerHTML = '<span class="text-slate-400 italic text-[11px]">No specific dates added.</span>';
           return;
         }
-        autoLockRules.lockedDates.forEach((d, idx) => {
+        targetList.forEach((d, idx) => {
           const span = document.createElement('span');
           span.className = 'bg-slate-100 text-slate-700 px-2 py-0.5 rounded text-[11px] font-semibold border border-slate-300 flex items-center space-x-1';
           span.innerHTML = `<span>${d}</span><button type="button" class="text-slate-400 hover:text-rose-600 remove-lock-date" data-index="${idx}">✕</button>`;
@@ -2452,8 +2598,8 @@
         });
         container.querySelectorAll('.remove-lock-date').forEach(btn => {
           btn.addEventListener('click', (e) => {
-            autoLockRules.lockedDates.splice(parseInt(e.currentTarget.dataset.index, 10), 1);
-            renderLockedDateTags();
+            targetList.splice(parseInt(e.currentTarget.dataset.index, 10), 1);
+            renderLockedDateTags(targetList);
           });
         });
       }
