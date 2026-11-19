@@ -192,11 +192,6 @@
             <span>Auto-Lock</span>
           </button>
 
-          <button id="btnShareView" type="button" class="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg font-bold flex items-center space-x-1.5 border border-indigo-200 shadow-sm transition-colors" title="Share current supervisor schedule view">
-            <i class="fa-solid fa-share-nodes text-indigo-600"></i>
-            <span>Share View</span>
-          </button>
-
           <button id="btnExportCSV" type="button" disabled class="px-3 py-1.5 bg-slate-200 text-slate-400 rounded-lg font-bold flex items-center space-x-1.5 cursor-not-allowed border border-slate-300">
             <i class="fa-solid fa-file-arrow-down"></i>
             <span>Export CSV</span>
@@ -642,70 +637,7 @@
     </div>
   </div>
 
-  <!-- MODAL: SHARE VIEW -->
-  <div id="shareViewModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 items-center justify-center hidden p-4">
-    <div class="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6 border border-slate-200 text-xs">
-      <div class="flex items-center justify-between pb-3 border-b border-slate-100">
-        <div>
-          <h3 class="text-base font-bold text-slate-900 flex items-center">
-            <i class="fa-solid fa-share-nodes text-indigo-600 mr-2"></i> Share Current Schedule View
-          </h3>
-          <p class="text-[11px] text-slate-500 mt-0.5">Generate a direct link to open this exact supervisor, date, and horizon</p>
-        </div>
-        <button id="btnCloseShareModal" type="button" class="text-slate-400 hover:text-slate-600 text-lg">✕</button>
-      </div>
 
-      <div class="my-4 space-y-4">
-        <div class="bg-slate-50 border border-slate-200 rounded-xl p-3 flex flex-wrap items-center justify-between gap-2 text-[11px]">
-          <div>
-            <span class="text-slate-400 block text-[10px]">Active Supervisor:</span>
-            <strong id="shareModalTlName" class="text-slate-800 text-xs">-</strong>
-          </div>
-          <div>
-            <span class="text-slate-400 block text-[10px]">Anchor Week:</span>
-            <strong id="shareModalDate" class="text-slate-800 text-xs">-</strong>
-          </div>
-          <div>
-            <span class="text-slate-400 block text-[10px]">Scope / Horizon:</span>
-            <strong id="shareModalScope" class="text-slate-800 text-xs">-</strong>
-          </div>
-          <div>
-            <span class="text-slate-400 block text-[10px]">Timezone:</span>
-            <strong id="shareModalTz" class="text-indigo-600 font-bold text-xs">-</strong>
-          </div>
-        </div>
-
-        <div>
-          <label class="block font-bold text-slate-700 mb-1">Direct Web Link:</label>
-          <div class="flex items-center space-x-1.5">
-            <input type="text" id="shareUrlInput" readonly class="flex-1 bg-slate-100 border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-700 select-all font-mono focus:outline-none">
-            <button id="btnCopyShareUrl" type="button" class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg whitespace-nowrap shadow-sm flex items-center space-x-1">
-              <i class="fa-solid fa-copy text-[11px]"></i>
-              <span id="copyShareBtnText">Copy Link</span>
-            </button>
-          </div>
-          <p class="text-[10px] text-slate-400 mt-1">Anyone opening this link will immediately load into this supervisor and calendar period.</p>
-        </div>
-
-        <div>
-          <label class="block font-bold text-slate-700 mb-1">Excel Formula (for Workbook Hubs):</label>
-          <div class="flex items-center space-x-1.5">
-            <input type="text" id="shareExcelFormulaInput" readonly class="flex-1 bg-slate-100 border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-700 select-all font-mono focus:outline-none">
-            <button id="btnCopyExcelFormula" type="button" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-900 text-white font-bold rounded-lg whitespace-nowrap shadow-sm flex items-center space-x-1">
-              <i class="fa-solid fa-copy text-[11px]"></i>
-              <span id="copyExcelBtnText">Copy Formula</span>
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <div class="flex justify-end space-x-2 pt-3 border-t border-slate-200">
-        <button id="btnCloseShareModalBtn" type="button" class="px-4 py-1.5 bg-slate-800 hover:bg-slate-900 text-white font-bold rounded-lg shadow-sm">
-          Done
-        </button>
-      </div>
-    </div>
-  </div>
 
   <!-- MODAL: HOW TO GUIDE -->
   <div id="guideModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 items-center justify-center hidden p-4">
@@ -875,9 +807,13 @@
 
       function parseShiftHours(shiftStr) {
         if (!shiftStr || typeof shiftStr !== 'string') return null;
-        const clean = shiftStr.trim();
-        const parts = clean.split(/[-–—to]+/i);
+        // Strip parenthetical timezone labels like "(EST)" or "[GMT]" before splitting
+        const clean = shiftStr.replace(/\([^)]*\)|\[[^\]]*\]/g, '').trim();
+        // Split ONLY on dash/en-dash/em-dash or standalone word "to" (never on letters inside words!)
+        const parts = clean.split(/(?:\s*[-–—]\s*|\s+to\s+)/i);
         if (parts.length < 2) return null;
+
+        const hasExplicitAmPm = /am|pm/i.test(parts[0]) || /am|pm/i.test(parts[1]);
 
         function parseSingleTime(str, fallbackAmpm) {
           str = str.trim().toLowerCase();
@@ -888,13 +824,15 @@
           let m = match[2] ? parseInt(match[2], 10) : 0;
           let ampm = match[3] ? match[3].toLowerCase() : fallbackAmpm;
 
-          if (!ampm && h <= 12) {
-            if (h >= 1 && h <= 6) ampm = 'pm';
+          if (hasExplicitAmPm && !ampm && h <= 12) {
+            if (h === 12) ampm = 'pm';
+            else if (h >= 1 && h <= 6) ampm = 'pm';
             else ampm = 'am';
           }
           if (ampm === 'pm' && h < 12) h += 12;
           if (ampm === 'am' && h === 12) h = 0;
 
+          if (h < 0 || h > 24 || m < 0 || m > 59) return null;
           return { totalMin: h * 60 + m, hour: h, min: m };
         }
 
@@ -905,7 +843,7 @@
         const endT = parseSingleTime(parts[1], secondAmpm);
         const firstHasAm = /am/i.test(parts[0]);
         const firstHasPm = /pm/i.test(parts[0]);
-        const firstAmpm = firstHasAm ? 'am' : (firstHasPm ? 'pm' : (endT && endT.hour < 12 ? 'am' : null));
+        const firstAmpm = firstHasAm ? 'am' : (firstHasPm ? 'pm' : (endT && endT.hour < 12 && hasExplicitAmPm ? 'am' : null));
 
         const startT = parseSingleTime(parts[0], firstAmpm);
         if (!startT || !endT) return null;
@@ -930,7 +868,8 @@
         return arr.some(item => {
           if (!item) return false;
           const s = String(item).trim().toLowerCase();
-          return s === lowerDay || s === shortDay || lowerDay.startsWith(s);
+          if (s.length < 2 || s === 'none' || s === 'n/a' || s === 'na') return false;
+          return s === lowerDay || s === shortDay || (s.length >= 3 && lowerDay.startsWith(s));
         });
       }
 
@@ -969,6 +908,32 @@
         return slotSet;
       }
 
+      // Computes exact (isoDate, slot) coordinates for a shift starting on `startIsoDate`,
+      // including the post-midnight morning slots on `startIsoDate + 1` for overnight shifts.
+      function getShiftCoordinatesForStartDate(tl, startIsoDate) {
+        const coords = [];
+        const shift = parseShiftHours(tl.shift);
+        if (!shift) return coords;
+
+        const startSlot = Math.floor(shift.start.totalMin / 30);
+        if (!shift.isOvernight) {
+          const endSlot = Math.floor(shift.end.totalMin / 30);
+          for (let s = startSlot; s < endSlot; s++) {
+            if (s >= 0 && s < 48) coords.push({ isoDate: startIsoDate, slot: s });
+          }
+        } else {
+          for (let s = startSlot; s < 48; s++) {
+            if (s >= 0 && s < 48) coords.push({ isoDate: startIsoDate, slot: s });
+          }
+          const nextIsoDate = addDaysToIso(startIsoDate, 1);
+          const morningEndSlot = Math.floor(shift.end.totalMin / 30);
+          for (let s = 0; s < morningEndSlot; s++) {
+            if (s >= 0 && s < 48) coords.push({ isoDate: nextIsoDate, slot: s });
+          }
+        }
+        return coords;
+      }
+
       function isDateLockedByRule(isoDate) {
         if (isScheduleLocked) return true;
         if (autoLockRules.cutoffEnabled && autoLockRules.cutoffDate) {
@@ -987,7 +952,7 @@
 
 
             // -------------------------------------------------------------
-      // FIREBASE FIRESTORE REAL-TIME SYNC
+      // FIREBASE FIRESTORE ISOLATED & ATOMIC REAL-TIME SYNC
       // -------------------------------------------------------------
       const firebaseConfig = {
         apiKey: "AIzaSyCYg8Vi4dgEnI3e0kD-kqzmWgAH_QG17BE",
@@ -1012,32 +977,91 @@
         console.warn('Firebase initialization fallback to local storage:', e);
       }
 
-      function syncGlobalMetaToFirebase() {
+      // Atomic transaction on tracker_meta/roster so concurrent add/edit/delete operations never overwrite each other or affect TL schedules
+      function mutateRosterInFirebase(mutatorFn) {
         if (!db) return;
-        db.collection('tracker_meta').doc('global').set({
-          teamLeaders: teamLeaders,
-          isScheduleLocked: isScheduleLocked,
-          autoLockRules: autoLockRules,
-          updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-        }, { merge: true }).catch(err => console.warn('Firestore meta sync error:', err));
+        const rosterRef = db.collection('tracker_meta').doc('roster');
+        db.runTransaction(async (transaction) => {
+          const doc = await transaction.get(rosterRef);
+          const currentList = (doc.exists && Array.isArray(doc.data().teamLeaders))
+            ? doc.data().teamLeaders
+            : [...teamLeaders];
+          const updatedList = mutatorFn(currentList);
+          transaction.set(rosterRef, {
+            teamLeaders: updatedList,
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+          });
+          return updatedList;
+        }).then((committedList) => {
+          if (Array.isArray(committedList)) {
+            teamLeaders = committedList;
+            localStorage.setItem(STORAGE_KEY_ROSTER, JSON.stringify(teamLeaders));
+            teamLeaders.forEach(tl => subscribeToTlSchedule(tl.id));
+          }
+        }).catch(err => {
+          console.warn('Firestore roster transaction fallback:', err);
+          rosterRef.set({
+            teamLeaders: teamLeaders,
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+          }).catch(e => console.warn('Firestore roster set error:', e));
+        });
       }
 
-      function syncTlScheduleToFirebase(tlId) {
-        if (!db || !tlId) return;
-        db.collection('tl_schedules').doc(tlId).set({
-          slots: tlSchedulesMap[tlId] || {},
+      // Isolated sync: ONLY syncs the lock boolean (never touches roster, rules, or schedules)
+      function syncLockToFirebase() {
+        if (!db) return;
+        db.collection('tracker_meta').doc('lock').set({
+          isScheduleLocked: isScheduleLocked,
           updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-        }).catch(err => console.warn('Firestore TL schedule sync error:', err));
+        }).catch(err => console.warn('Firestore lock sync error:', err));
+      }
+
+      // Isolated sync: ONLY syncs auto-lock date rules (never touches roster, lock, or schedules)
+      function syncRulesToFirebase() {
+        if (!db) return;
+        db.collection('tracker_meta').doc('rules').set({
+          autoLockRules: autoLockRules,
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        }).catch(err => console.warn('Firestore rules sync error:', err));
+      }
+
+      // Granular per-slot merge sync: ONLY modifies the specific changed coordinates on this TL's schedule document
+      function syncTlScheduleToFirebase(tlId, changedCoords = null) {
+        if (!db || !tlId) return;
+        subscribeToTlSchedule(tlId);
+        const tlSched = tlSchedulesMap[tlId] || {};
+        const docRef = db.collection('tl_schedules').doc(tlId);
+
+        if (Array.isArray(changedCoords) && changedCoords.length > 0) {
+          const partialSlots = {};
+          changedCoords.forEach(coord => {
+            if (tlSched[coord]) {
+              partialSlots[coord] = tlSched[coord];
+            } else {
+              partialSlots[coord] = firebase.firestore.FieldValue.delete();
+            }
+          });
+          docRef.set({
+            slots: partialSlots,
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+          }, { merge: true }).catch(err => console.warn('Firestore granular slot sync error:', err));
+        } else {
+          docRef.set({
+            slots: tlSched,
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+          }).catch(err => console.warn('Firestore TL schedule sync error:', err));
+        }
       }
 
       function subscribeToTlSchedule(tlId) {
         if (!db || !tlId || subscribedTlIds.has(tlId)) return;
         subscribedTlIds.add(tlId);
         db.collection('tl_schedules').doc(tlId).onSnapshot((doc) => {
-          if (!doc.exists) return;
+          if (!doc.exists || doc.metadata.hasPendingWrites) return;
           const data = doc.data();
           tlSchedulesMap[tlId] = data.slots || {};
           localStorage.setItem(STORAGE_KEY_SCHED_PREFIX + tlId, JSON.stringify(tlSchedulesMap[tlId]));
+          // Only re-render the grid if the user is currently viewing this exact supervisor
           if (tlId === activeTlId) {
             renderMatrix();
           }
@@ -1048,37 +1072,72 @@
         if (!db) return;
         teamLeaders.forEach(tl => subscribeToTlSchedule(tl.id));
 
-        db.collection('tracker_meta').doc('global').onSnapshot((doc) => {
+        // 1. Listen ONLY to Roster changes (never overwrites Firestore with default sample data on fresh load)
+        db.collection('tracker_meta').doc('roster').onSnapshot((doc) => {
           if (!doc.exists) {
-            syncGlobalMetaToFirebase();
-            teamLeaders.forEach(tl => {
-              if (Object.keys(getTlSchedule(tl.id)).length > 0) {
-                syncTlScheduleToFirebase(tl.id);
-              }
-            });
+            // Only initialize Firestore roster if it does not exist yet
+            mutateRosterInFirebase(() => [...teamLeaders]);
             return;
           }
+          if (doc.metadata.hasPendingWrites) return;
           const data = doc.data();
           if (Array.isArray(data.teamLeaders)) {
+            const previousActiveId = activeTlId;
+            const prevTlObj = teamLeaders.find(t => t.id === previousActiveId);
             teamLeaders = data.teamLeaders;
             localStorage.setItem(STORAGE_KEY_ROSTER, JSON.stringify(teamLeaders));
             teamLeaders.forEach(tl => subscribeToTlSchedule(tl.id));
-            if (teamLeaders.length > 0 && (!activeTlId || !teamLeaders.some(t => t.id === activeTlId))) {
-              activeTlId = teamLeaders[0].id;
+
+            // Keep current supervisor view untouched unless that supervisor was removed
+            if (previousActiveId && teamLeaders.some(t => t.id === previousActiveId)) {
+              activeTlId = previousActiveId;
+            } else {
+              activeTlId = teamLeaders.length > 0 ? teamLeaders[0].id : null;
+            }
+            renderSupervisorDropdown();
+            if (document.getElementById('manageTlsModal')?.style.display === 'flex') {
+              renderRosterTable();
+            }
+            const newTlObj = teamLeaders.find(t => t.id === activeTlId);
+            const activeMetaChanged = (activeTlId !== previousActiveId) ||
+              (prevTlObj && newTlObj && (prevTlObj.shift !== newTlObj.shift || prevTlObj.timezone !== newTlObj.timezone || JSON.stringify(prevTlObj.daysOff) !== JSON.stringify(newTlObj.daysOff)));
+            if (activeMetaChanged) {
+              renderMatrix();
             }
           }
-          if (typeof data.isScheduleLocked === 'boolean') {
+        }, err => console.warn('Firestore roster listener error:', err));
+
+        // 2. Listen ONLY to Lock state changes (never touches roster or schedule data)
+        db.collection('tracker_meta').doc('lock').onSnapshot((doc) => {
+          if (!doc.exists) {
+            syncLockToFirebase();
+            return;
+          }
+          if (doc.metadata.hasPendingWrites) return;
+          const data = doc.data();
+          if (typeof data.isScheduleLocked === 'boolean' && data.isScheduleLocked !== isScheduleLocked) {
             isScheduleLocked = data.isScheduleLocked;
             localStorage.setItem(STORAGE_KEY_LOCK, JSON.stringify(isScheduleLocked));
+            clearCellSelection();
+            updateAdminLockUI();
+            renderMatrix();
           }
+        }, err => console.warn('Firestore lock listener error:', err));
+
+        // 3. Listen ONLY to Auto-Lock Rules changes (never touches roster, lock, or schedule data)
+        db.collection('tracker_meta').doc('rules').onSnapshot((doc) => {
+          if (!doc.exists) {
+            syncRulesToFirebase();
+            return;
+          }
+          if (doc.metadata.hasPendingWrites) return;
+          const data = doc.data();
           if (data.autoLockRules) {
             autoLockRules = data.autoLockRules;
             localStorage.setItem(STORAGE_KEY_RULES, JSON.stringify(autoLockRules));
+            renderMatrix();
           }
-          renderSupervisorDropdown();
-          updateAdminLockUI();
-          renderMatrix();
-        }, err => console.warn('Firestore global listener error:', err));
+        }, err => console.warn('Firestore rules listener error:', err));
       }
 
       function getTlSchedule(tlId) {
@@ -1094,17 +1153,17 @@
         return tlSchedulesMap[tlId];
       }
 
-      // Saves ONLY the specified supervisor's schedule—never touches any other supervisor's storage!
-      function saveTlSchedule(tlId) {
+      // Saves ONLY the specified supervisor's schedule & syncs only the changed coordinates!
+      function saveTlSchedule(tlId, changedCoords = null) {
         if (!tlId) return;
         const data = tlSchedulesMap[tlId] || {};
         localStorage.setItem(STORAGE_KEY_SCHED_PREFIX + tlId, JSON.stringify(data));
-        syncTlScheduleToFirebase(tlId);
+        syncTlScheduleToFirebase(tlId, changedCoords);
       }
 
       function loadState() {
         try {
-          // 1. Load or migrate Roster
+          // 1. Load local cached Roster (DO NOT push default sample roster to Firebase here!)
           const r = localStorage.getItem(STORAGE_KEY_ROSTER);
           if (r) {
             const parsed = JSON.parse(r);
@@ -1117,10 +1176,10 @@
             } else {
               teamLeaders = [...DEFAULT_SAMPLE_ROSTER];
             }
-            saveRoster();
+            localStorage.setItem(STORAGE_KEY_ROSTER, JSON.stringify(teamLeaders));
           }
 
-          // 2. Load per-TL schedules (and migrate any legacy v4 monolithic store once)
+          // 2. Load per-TL schedules (and migrate any legacy v4 monolithic store once locally)
           const legacyS = localStorage.getItem(LEGACY_SCHED_KEY);
           if (legacyS && !localStorage.getItem('tl_tracker_migrated_v5')) {
             const parsedLegacyS = JSON.parse(legacyS);
@@ -1128,8 +1187,6 @@
               const idx1 = fullKey.indexOf('_');
               const lastIdx = fullKey.lastIndexOf('_');
               if (idx1 !== -1 && lastIdx > idx1) {
-                // Format was: tlId_YYYY-MM-DD_slot
-                // Since tlId itself can contain underscores (e.g. tl_1), extract YYYY-MM-DD_slot from end
                 const m = fullKey.match(/^(.+)_(\d{4}-\d{2}-\d{2}_\d+)$/);
                 if (m) {
                   const tId = m[1];
@@ -1139,7 +1196,9 @@
                 }
               }
             });
-            Object.keys(tlSchedulesMap).forEach(tId => saveTlSchedule(tId));
+            Object.keys(tlSchedulesMap).forEach(tId => {
+              localStorage.setItem(STORAGE_KEY_SCHED_PREFIX + tId, JSON.stringify(tlSchedulesMap[tId]));
+            });
             localStorage.setItem('tl_tracker_migrated_v5', '1');
           }
 
@@ -1165,9 +1224,9 @@
         }
       }
 
-      function saveRoster() { localStorage.setItem(STORAGE_KEY_ROSTER, JSON.stringify(teamLeaders)); syncGlobalMetaToFirebase(); }
-      function saveLockState() { localStorage.setItem(STORAGE_KEY_LOCK, JSON.stringify(isScheduleLocked)); syncGlobalMetaToFirebase(); }
-      function saveRulesState() { localStorage.setItem(STORAGE_KEY_RULES, JSON.stringify(autoLockRules)); syncGlobalMetaToFirebase(); }
+      function saveRosterLocalOnly() { localStorage.setItem(STORAGE_KEY_ROSTER, JSON.stringify(teamLeaders)); }
+      function saveLockState() { localStorage.setItem(STORAGE_KEY_LOCK, JSON.stringify(isScheduleLocked)); syncLockToFirebase(); }
+      function saveRulesState() { localStorage.setItem(STORAGE_KEY_RULES, JSON.stringify(autoLockRules)); syncRulesToFirebase(); }
 
       function getActiveTl() {
         if (!activeTlId && teamLeaders.length > 0) activeTlId = teamLeaders[0].id;
@@ -1481,9 +1540,11 @@
         if (!draggedCellData) return;
 
         const tlSched = getTlSchedule(targetTlId);
-        delete tlSched[`${draggedCellData.fromDate}_${draggedCellData.fromSlot}`];
-        tlSched[`${targetDate}_${targetSlot}`] = { status: draggedCellData.status, agent: draggedCellData.agent };
-        saveTlSchedule(targetTlId);
+        const fromCoord = `${draggedCellData.fromDate}_${draggedCellData.fromSlot}`;
+        const toCoord = `${targetDate}_${targetSlot}`;
+        delete tlSched[fromCoord];
+        tlSched[toCoord] = { status: draggedCellData.status, agent: draggedCellData.agent };
+        saveTlSchedule(targetTlId, [fromCoord, toCoord]);
         draggedCellData = null;
         renderMatrix();
       }
@@ -1662,7 +1723,7 @@
               <button type="button" class="text-indigo-600 hover:text-indigo-800 font-bold text-xs edit-tl-btn" data-id="${tl.id}" title="Edit Supervisor">
                 <i class="fa-solid fa-pen-to-square"></i> Edit
               </button>
-              <button type="button" class="text-rose-600 hover:text-rose-800 font-bold text-xs delete-tl-btn" data-index="${index}" title="Delete Supervisor">
+              <button type="button" class="text-rose-600 hover:text-rose-800 font-bold text-xs delete-tl-btn" data-id="${tl.id}" title="Delete Supervisor">
                 <i class="fa-solid fa-trash-can"></i>
               </button>
             </td>
@@ -1680,17 +1741,20 @@
 
         document.querySelectorAll('.delete-tl-btn').forEach(btn => {
           btn.addEventListener('click', (e) => {
-            const idx = parseInt(e.currentTarget.dataset.index, 10);
-            const deleted = teamLeaders.splice(idx, 1)[0];
+            const delId = e.currentTarget.dataset.id;
+            const deleted = teamLeaders.find(t => t.id === delId);
+            if (!deleted) return;
+            teamLeaders = teamLeaders.filter(t => t.id !== delId);
             if (editingTlId === deleted.id) resetTlForm();
             // Only switch activeTlId if the deleted supervisor was the currently viewed one
             if (activeTlId === deleted.id) {
               activeTlId = teamLeaders.length > 0 ? teamLeaders[0].id : null;
             }
-            saveRoster();
+            saveRosterLocalOnly();
+            mutateRosterInFirebase((serverList) => serverList.filter(t => t.id !== delId));
             renderRosterTable();
             renderSupervisorDropdown();
-            renderMatrix();
+            if (activeTlId === null || teamLeaders.length > 0) renderMatrix();
             showToast(`Removed ${deleted.name} from roster. Other supervisors' schedules remain intact.`, 'info');
           });
         });
@@ -1836,7 +1900,16 @@
             }
 
             resetTlForm();
-            saveRoster();
+            saveRosterLocalOnly();
+            if (isReplace) {
+              mutateRosterInFirebase(() => [...teamLeaders]);
+            } else {
+              mutateRosterInFirebase((serverList) => {
+                const seen = new Set(serverList.map(t => t.name.trim().toLowerCase()));
+                const additions = newTls.filter(t => !seen.has(t.name.trim().toLowerCase()));
+                return [...serverList, ...additions].slice(0, 100);
+              });
+            }
             renderRosterTable();
             renderSupervisorDropdown();
             renderMatrix();
@@ -1893,8 +1966,13 @@
         document.getElementById('tzSelector').addEventListener('change', (e) => {
           const tl = getActiveTl();
           if (tl) {
-            tl.timezone = e.target.value;
-            saveRoster();
+            const newTz = e.target.value;
+            const targetId = tl.id;
+            tl.timezone = newTz;
+            saveRosterLocalOnly();
+            mutateRosterInFirebase((serverList) =>
+              serverList.map(item => item.id === targetId ? { ...item, timezone: newTz } : item)
+            );
             renderProfileBanner(tl);
             renderMatrix();
           }
@@ -1962,23 +2040,32 @@
           if (isScheduleLocked) return;
           const tl = getActiveTl();
           if (!tl) return;
+          const parsedShift = parseShiftHours(tl.shift);
+          if (!parsedShift) {
+            showToast(`Could not parse shift hours "${tl.shift}". Please edit supervisor shift format (e.g. 9:00 AM - 6:00 PM).`, 'error');
+            return;
+          }
+
           const tlSched = getTlSchedule(tl.id);
           const mode = document.querySelector('input[name="afMode"]:checked').value;
 
           let filledSlots = 0;
+          const changedCoords = [];
           document.querySelectorAll('#afDateList .modal-date-chk:checked').forEach(chk => {
-            const isoDate = chk.value;
-            if (isDateLockedByRule(isoDate)) return;
-            const shiftSlots = getShiftSlotsForDate(tl, isoDate);
-            shiftSlots.forEach(s => {
-              const coord = `${isoDate}_${s}`;
+            const startIsoDate = chk.value;
+            if (isDateLockedByRule(startIsoDate)) return;
+            const shiftCoords = getShiftCoordinatesForStartDate(tl, startIsoDate);
+            shiftCoords.forEach(({ isoDate, slot }) => {
+              if (isDateLockedByRule(isoDate)) return;
+              const coord = `${isoDate}_${slot}`;
               if (mode === 'overwrite' || !tlSched[coord]) {
                 tlSched[coord] = { status: 'Available', agent: '' };
+                changedCoords.push(coord);
                 filledSlots++;
               }
             });
           });
-          saveTlSchedule(tl.id);
+          saveTlSchedule(tl.id, changedCoords);
           renderMatrix();
           hideModal('autoFillModal');
           showToast(`Auto-filled ${filledSlots} shift slot(s) for ${tl.name}.`, 'success');
@@ -2010,18 +2097,30 @@
           const startSlot = parseInt(document.getElementById('lunchStartTime').value, 10);
           const durationMins = parseInt(document.getElementById('lunchDuration').value, 10);
           const slotsCount = Math.floor(durationMins / 30);
+          const parsedShift = parseShiftHours(tl.shift);
+          const shiftStartSlot = parsedShift ? Math.floor(parsedShift.start.totalMin / 30) : 0;
 
           let daysUpdated = 0;
+          const changedCoords = [];
           document.querySelectorAll('#lunchDateList .modal-date-chk:checked').forEach(chk => {
-            const isoDate = chk.value;
-            if (isDateLockedByRule(isoDate)) return;
+            const baseDate = chk.value;
+            if (isDateLockedByRule(baseDate)) return;
             for (let i = 0; i < slotsCount; i++) {
-              const slot = startSlot + i;
-              if (slot < 48) tlSched[`${isoDate}_${slot}`] = { status: 'Lunch', agent: '' };
+              const rawSlot = startSlot + i;
+              // If supervisor works an overnight shift and selects a post-midnight lunch time (e.g. 2:00 AM), map to next calendar day
+              const targetDate = (parsedShift && parsedShift.isOvernight && rawSlot < shiftStartSlot)
+                ? addDaysToIso(baseDate, 1)
+                : baseDate;
+              const targetSlot = rawSlot % 48;
+              if (!isDateLockedByRule(targetDate)) {
+                const coord = `${targetDate}_${targetSlot}`;
+                tlSched[coord] = { status: 'Lunch', agent: '' };
+                changedCoords.push(coord);
+              }
             }
             daysUpdated++;
           });
-          saveTlSchedule(tl.id);
+          saveTlSchedule(tl.id, changedCoords);
           renderMatrix();
           hideModal('insertLunchModal');
           showToast(`Inserted lunch across ${daysUpdated} day(s) for ${tl.name}.`, 'success');
@@ -2047,23 +2146,32 @@
           if (isScheduleLocked) return;
           const tl = getActiveTl();
           if (!tl) return;
+          const parsedShift = parseShiftHours(tl.shift);
+          if (!parsedShift) {
+            showToast(`Could not parse shift hours "${tl.shift}". Please edit supervisor shift format (e.g. 9:00 AM - 6:00 PM).`, 'error');
+            return;
+          }
+
           const tlSched = getTlSchedule(tl.id);
           const mode = document.querySelector('input[name="unavailMode"]:checked').value;
 
           let filledSlots = 0;
+          const changedCoords = [];
           document.querySelectorAll('#unavailDateList .modal-date-chk:checked').forEach(chk => {
-            const isoDate = chk.value;
-            if (isDateLockedByRule(isoDate)) return;
-            const shiftSlots = getShiftSlotsForDate(tl, isoDate);
-            shiftSlots.forEach(s => {
-              const coord = `${isoDate}_${s}`;
+            const startIsoDate = chk.value;
+            if (isDateLockedByRule(startIsoDate)) return;
+            const shiftCoords = getShiftCoordinatesForStartDate(tl, startIsoDate);
+            shiftCoords.forEach(({ isoDate, slot }) => {
+              if (isDateLockedByRule(isoDate)) return;
+              const coord = `${isoDate}_${slot}`;
               if (mode === 'overwrite' || !tlSched[coord]) {
                 tlSched[coord] = { status: 'Unavailable', agent: '' };
+                changedCoords.push(coord);
                 filledSlots++;
               }
             });
           });
-          saveTlSchedule(tl.id);
+          saveTlSchedule(tl.id, changedCoords);
           renderMatrix();
           hideModal('fillUnavailableModal');
           showToast(`Marked ${filledSlots} shift slot(s) as Unavailable for ${tl.name}.`, 'success');
@@ -2092,13 +2200,18 @@
           const tlSched = getTlSchedule(tl.id);
 
           let clearedDays = 0;
+          const changedCoords = [];
           document.querySelectorAll('#clearDateList .modal-date-chk:checked').forEach(chk => {
             const isoDate = chk.value;
             if (isDateLockedByRule(isoDate)) return;
-            for (let s = 0; s < 48; s++) delete tlSched[`${isoDate}_${s}`];
+            for (let s = 0; s < 48; s++) {
+              const coord = `${isoDate}_${s}`;
+              delete tlSched[coord];
+              changedCoords.push(coord);
+            }
             clearedDays++;
           });
-          saveTlSchedule(tl.id);
+          saveTlSchedule(tl.id, changedCoords);
           renderMatrix();
           hideModal('clearDatesModal');
           showToast(`Cleared plotted slots across ${clearedDays} day(s) for ${tl.name}.`, 'info');
@@ -2113,14 +2226,16 @@
           if (!tl) return;
           const tlSched = getTlSchedule(tl.id);
 
+          const changedCoords = [];
           selectedCells.forEach(coord => {
             const [isoDate] = coord.split('_');
             if (!isDateLockedByRule(isoDate)) {
               if (status === 'Blank') delete tlSched[coord];
               else tlSched[coord] = { status, agent };
+              changedCoords.push(coord);
             }
           });
-          saveTlSchedule(tl.id);
+          saveTlSchedule(tl.id, changedCoords);
           clearCellSelection();
           renderMatrix();
         });
@@ -2157,17 +2272,25 @@
           const daysOffArr = offInput.value ? offInput.value.split(/[,\/\s\-–]+/).map(s => s.trim()).filter(Boolean) : ['Saturday', 'Sunday'];
 
           if (editingTlId) {
-            const tl = teamLeaders.find(t => t.id === editingTlId);
+            const targetEditId = editingTlId;
+            const tl = teamLeaders.find(t => t.id === targetEditId);
             if (tl) {
-              if (teamLeaders.some(t => t.id !== editingTlId && t.name.toLowerCase() === rawName.toLowerCase())) {
+              if (teamLeaders.some(t => t.id !== targetEditId && t.name.toLowerCase() === rawName.toLowerCase())) {
                 showToast(`Another supervisor named "${rawName}" already exists.`, 'warning');
                 return;
               }
-              tl.name = rawName;
-              tl.team = teamInput.value.trim() || 'General';
-              tl.shift = shiftVal;
-              tl.daysOff = daysOffArr;
-              tl.timezone = tzInput.value || 'EST';
+              const updatedFields = {
+                name: rawName,
+                team: teamInput.value.trim() || 'General',
+                shift: shiftVal,
+                daysOff: daysOffArr,
+                timezone: tzInput.value || 'EST'
+              };
+              Object.assign(tl, updatedFields);
+              saveRosterLocalOnly();
+              mutateRosterInFirebase((serverList) =>
+                serverList.map(item => item.id === targetEditId ? { ...item, ...updatedFields } : item)
+              );
               showToast(`Updated ${tl.name}. Plotted schedule sessions preserved.`, 'success');
             }
             resetTlForm();
@@ -2192,10 +2315,13 @@
             teamLeaders.push(newTl);
             if (!activeTlId) activeTlId = newTl.id;
             nameInput.value = ''; teamInput.value = ''; shiftInput.value = ''; offInput.value = '';
+            saveRosterLocalOnly();
+            mutateRosterInFirebase((serverList) => {
+              if (serverList.some(t => t.name.toLowerCase() === newTl.name.toLowerCase())) return serverList;
+              return [...serverList, newTl].slice(0, 100);
+            });
             showToast(`Added ${newTl.name} to roster.`, 'success');
           }
-
-          saveRoster();
           renderRosterTable();
           renderSupervisorDropdown();
           renderMatrix();
@@ -2215,7 +2341,16 @@
             }
           });
           if (!activeTlId && teamLeaders.length > 0) activeTlId = teamLeaders[0].id;
-          saveRoster();
+          saveRosterLocalOnly();
+          mutateRosterInFirebase((serverList) => {
+            const merged = [...serverList];
+            DEFAULT_SAMPLE_ROSTER.forEach(sample => {
+              if (!merged.some(t => t.name.toLowerCase() === sample.name.toLowerCase())) {
+                merged.push({ ...sample });
+              }
+            });
+            return merged.slice(0, 100);
+          });
           renderRosterTable();
           renderSupervisorDropdown();
           renderMatrix();
@@ -2227,7 +2362,8 @@
             teamLeaders = [];
             activeTlId = null;
             resetTlForm();
-            saveRoster();
+            saveRosterLocalOnly();
+            mutateRosterInFirebase(() => []);
             renderRosterTable();
             renderSupervisorDropdown();
             renderMatrix();
@@ -2299,65 +2435,6 @@
         document.getElementById('btnExportSelectNone').addEventListener('click', () => document.querySelectorAll('.export-tl-chk').forEach(c => c.checked = false));
         document.getElementById('btnExportSelectActive').addEventListener('click', () => document.querySelectorAll('.export-tl-chk').forEach(c => c.checked = (c.dataset.hasActivity === 'true')));
         document.getElementById('btnDownloadCsvConfirmed').addEventListener('click', generateAndDownloadCsv);
-
-        // SHARE VIEW MODAL HANDLERS
-        document.getElementById('btnShareView').addEventListener('click', () => {
-          const tl = getActiveTl();
-          const tlName = tl ? tl.name : 'All Supervisors';
-          const tz = tl ? (tl.timezone || 'EST') : 'EST';
-
-          document.getElementById('shareModalTlName').textContent = tlName;
-          document.getElementById('shareModalDate').textContent = formatIsoDateNice(baseAnchorDate);
-          document.getElementById('shareModalScope').textContent = activeViewScope === 'month' ? 'Monthly View' : `${activeViewScope} Week(s)`;
-          document.getElementById('shareModalTz').textContent = tz;
-
-          const cleanBase = window.location.href.split('#')[0].split('?')[0];
-          const queryParams = new URLSearchParams({
-            tl: activeTlId || '',
-            date: baseAnchorDate || '',
-            scope: activeViewScope || '1',
-            tz: tz
-          });
-          const shareUrl = `${cleanBase}?${queryParams.toString()}`;
-          const excelFormula = `=HYPERLINK("${shareUrl}", "Open ${tlName} Schedule")`;
-
-          document.getElementById('shareUrlInput').value = shareUrl;
-          document.getElementById('shareExcelFormulaInput').value = excelFormula;
-
-          document.getElementById('copyShareBtnText').textContent = 'Copy Link';
-          document.getElementById('copyExcelBtnText').textContent = 'Copy Formula';
-
-          showModal('shareViewModal');
-        });
-
-        document.getElementById('btnCloseShareModal').addEventListener('click', () => hideModal('shareViewModal'));
-        document.getElementById('btnCloseShareModalBtn').addEventListener('click', () => hideModal('shareViewModal'));
-
-        document.getElementById('btnCopyShareUrl').addEventListener('click', () => {
-          const input = document.getElementById('shareUrlInput');
-          input.select();
-          navigator.clipboard.writeText(input.value).then(() => {
-            document.getElementById('copyShareBtnText').textContent = 'Copied!';
-            setTimeout(() => { document.getElementById('copyShareBtnText').textContent = 'Copy Link'; }, 2000);
-          }).catch(() => {
-            document.execCommand('copy');
-            document.getElementById('copyShareBtnText').textContent = 'Copied!';
-            setTimeout(() => { document.getElementById('copyShareBtnText').textContent = 'Copy Link'; }, 2000);
-          });
-        });
-
-        document.getElementById('btnCopyExcelFormula').addEventListener('click', () => {
-          const input = document.getElementById('shareExcelFormulaInput');
-          input.select();
-          navigator.clipboard.writeText(input.value).then(() => {
-            document.getElementById('copyExcelBtnText').textContent = 'Copied!';
-            setTimeout(() => { document.getElementById('copyExcelBtnText').textContent = 'Copy Formula'; }, 2000);
-          }).catch(() => {
-            document.execCommand('copy');
-            document.getElementById('copyExcelBtnText').textContent = 'Copied!';
-            setTimeout(() => { document.getElementById('copyExcelBtnText').textContent = 'Copy Formula'; }, 2000);
-          });
-        });
       }
 
       function renderLockedDateTags() {
