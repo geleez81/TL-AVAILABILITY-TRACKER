@@ -541,7 +541,7 @@
       <h3 class="text-base font-bold text-slate-900 mb-1 flex items-center">
         <i class="fa-solid fa-shield-halved text-indigo-600 mr-2"></i> Admin Security Gate
       </h3>
-      <p class="text-slate-500 mb-3">Enter the admin password to toggle schedule lock state.</p>
+      <p id="adminModalSubtitle" class="text-slate-500 mb-3">Enter the admin password to continue.</p>
 
       <div class="mb-4">
         <label class="block font-semibold text-slate-700 mb-1">Admin Password:</label>
@@ -1000,8 +1000,43 @@
 
 
             // -------------------------------------------------------------
-      // FIREBASE FIRESTORE ISOLATED & ATOMIC REAL-TIME SYNC
+      // FIREBASE FIRESTORE CONFLICT-FREE & ISOLATED REAL-TIME SYNC
       // -------------------------------------------------------------
+      const STORAGE_KEY_ID_MAP = 'tl_tracker_id_map_v5';
+      let tlIdRegistry = {}; // { normalizedName: stableTlId }
+      try {
+        const savedMap = localStorage.getItem(STORAGE_KEY_ID_MAP);
+        if (savedMap) tlIdRegistry = JSON.parse(savedMap) || {};
+      } catch (e) { tlIdRegistry = {}; }
+
+      function rememberTlIds(list) {
+        if (!Array.isArray(list)) return;
+        let changed = false;
+        list.forEach(tl => {
+          if (tl && tl.name && tl.id) {
+            const norm = tl.name.trim().toLowerCase();
+            if (tlIdRegistry[norm] !== tl.id) {
+              tlIdRegistry[norm] = tl.id;
+              changed = true;
+            }
+          }
+        });
+        if (changed) {
+          localStorage.setItem(STORAGE_KEY_ID_MAP, JSON.stringify(tlIdRegistry));
+        }
+      }
+
+      function getOrCreateStableTlId(rawName, existingList = teamLeaders) {
+        const norm = String(rawName || '').trim().toLowerCase();
+        const activeMatch = existingList.find(t => t.name.trim().toLowerCase() === norm);
+        if (activeMatch) return activeMatch.id;
+        if (tlIdRegistry[norm]) return tlIdRegistry[norm];
+        const newId = 'tl_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
+        tlIdRegistry[norm] = newId;
+        localStorage.setItem(STORAGE_KEY_ID_MAP, JSON.stringify(tlIdRegistry));
+        return newId;
+      }
+
       const firebaseConfig = {
         apiKey: "AIzaSyCYg8Vi4dgEnI3e0kD-kqzmWgAH_QG17BE",
         authDomain: "tl-availability-tracker.firebaseapp.com",
@@ -1013,6 +1048,8 @@
 
       let db = null;
       const subscribedTlIds = new Set();
+      // Tracks coordinates currently in-flight to Firestore per TL so snapshots never revert an active local edit
+      const inFlightCoordsByTl = {};
 
       try {
         if (typeof firebase !== 'undefined') {
@@ -1025,8 +1062,11 @@
         console.warn('Firebase initialization fallback to local storage:', e);
       }
 
-      // Atomic transaction on tracker_meta/roster so concurrent add/edit/delete operations never overwrite each other or affect TL schedules
+      // Atomic transaction on tracker_meta/roster:
+      // - Preserves stable TL IDs across add/remove/replace so no TL's schedule sheet is ever orphaned or overwritten
+      // - Never touches tl_schedules/*, tracker_meta/lock, or tracker_meta/rules
       function mutateRosterInFirebase(mutatorFn) {
+        rememberTlIds(teamLeaders);
         if (!db) return;
         const rosterRef = db.collection('tracker_meta').doc('roster');
         db.runTransaction(async (transaction) => {
@@ -1034,7 +1074,18 @@
           const currentList = (doc.exists && Array.isArray(doc.data().teamLeaders))
             ? doc.data().teamLeaders
             : [...teamLeaders];
-          const updatedList = mutatorFn(currentList);
+          rememberTlIds(currentList);
+
+          // Ensure any item in updatedList preserves existing server ID if name matches
+          const rawUpdated = mutatorFn(currentList);
+          const updatedList = rawUpdated.map(item => {
+            const norm = item.name.trim().toLowerCase();
+            const serverMatch = currentList.find(s => s.name.trim().toLowerCase() === norm);
+            const stableId = serverMatch ? serverMatch.id : (tlIdRegistry[norm] || item.id);
+            return { ...item, id: stableId };
+          });
+
+          rememberTlIds(updatedList);
           transaction.set(rosterRef, {
             teamLeaders: updatedList,
             updatedAt: firebase.firestore.FieldValue.serverTimestamp()
@@ -1042,9 +1093,15 @@
           return updatedList;
         }).then((committedList) => {
           if (Array.isArray(committedList)) {
+            const prevActiveName = teamLeaders.find(t => t.id === activeTlId)?.name.trim().toLowerCase();
             teamLeaders = committedList;
             localStorage.setItem(STORAGE_KEY_ROSTER, JSON.stringify(teamLeaders));
+            if (prevActiveName) {
+              const matched = teamLeaders.find(t => t.name.trim().toLowerCase() === prevActiveName);
+              if (matched) activeTlId = matched.id;
+            }
             teamLeaders.forEach(tl => subscribeToTlSchedule(tl.id));
+            renderSupervisorDropdown();
           }
         }).catch(err => {
           console.warn('Firestore roster transaction fallback:', err);
@@ -1093,32 +1150,70 @@
         });
       }
 
-      // Granular per-slot merge sync: ONLY modifies the specific changed coordinates on this TL's schedule document
+      // Conflict-free atomic per-slot merge on tl_schedules/{tlId}:
+      // - Reads latest server slots for ONLY this TL inside a transaction
+      // - Merges ONLY the specific changed coordinates so concurrent edits on other days/slots or other TLs never overwrite each other
       function syncTlScheduleToFirebase(tlId, changedCoords = null) {
         if (!db || !tlId) return;
         subscribeToTlSchedule(tlId);
-        const tlSched = tlSchedulesMap[tlId] || {};
+        const localSched = getTlSchedule(tlId);
         const docRef = db.collection('tl_schedules').doc(tlId);
 
-        if (Array.isArray(changedCoords) && changedCoords.length > 0) {
-          const partialSlots = {};
-          changedCoords.forEach(coord => {
-            if (tlSched[coord]) {
-              partialSlots[coord] = tlSched[coord];
+        if (!inFlightCoordsByTl[tlId]) inFlightCoordsByTl[tlId] = new Set();
+        const coordsToSync = Array.isArray(changedCoords) && changedCoords.length > 0
+          ? changedCoords
+          : Object.keys(localSched);
+
+        coordsToSync.forEach(c => inFlightCoordsByTl[tlId].add(c));
+
+        // Snapshot the intended local values for the changed coordinates
+        const intendedChanges = {};
+        coordsToSync.forEach(coord => {
+          intendedChanges[coord] = localSched[coord] ? { ...localSched[coord] } : null;
+        });
+
+        db.runTransaction(async (transaction) => {
+          const doc = await transaction.get(docRef);
+          // Start from latest server slots (or full localSched if document does not exist yet in Firestore)
+          const mergedSlots = (doc.exists && doc.data().slots && typeof doc.data().slots === 'object')
+            ? { ...doc.data().slots }
+            : { ...localSched };
+
+          Object.keys(intendedChanges).forEach(coord => {
+            if (intendedChanges[coord]) {
+              mergedSlots[coord] = intendedChanges[coord];
             } else {
-              partialSlots[coord] = firebase.firestore.FieldValue.delete();
+              delete mergedSlots[coord];
             }
           });
-          docRef.set({
-            slots: partialSlots,
+
+          transaction.set(docRef, {
+            slots: mergedSlots,
             updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-          }, { merge: true }).catch(err => console.warn('Firestore granular slot sync error:', err));
-        } else {
-          docRef.set({
-            slots: tlSched,
-            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-          }).catch(err => console.warn('Firestore TL schedule sync error:', err));
-        }
+          });
+          return mergedSlots;
+        }).then((committedSlots) => {
+          coordsToSync.forEach(c => inFlightCoordsByTl[tlId]?.delete(c));
+          if (committedSlots && typeof committedSlots === 'object') {
+            // Preserve any newer edits made while transaction was running
+            const currentLocal = getTlSchedule(tlId);
+            const finalSlots = { ...committedSlots };
+            if (inFlightCoordsByTl[tlId]) {
+              inFlightCoordsByTl[tlId].forEach(pendingCoord => {
+                if (currentLocal[pendingCoord]) finalSlots[pendingCoord] = currentLocal[pendingCoord];
+                else delete finalSlots[pendingCoord];
+              });
+            }
+            tlSchedulesMap[tlId] = finalSlots;
+            localStorage.setItem(STORAGE_KEY_SCHED_PREFIX + tlId, JSON.stringify(finalSlots));
+            if (tlId === activeTlId) {
+              renderMatrix();
+            }
+          }
+        }).catch(err => {
+          coordsToSync.forEach(c => inFlightCoordsByTl[tlId]?.delete(c));
+          console.warn('Firestore TL schedule transaction error:', err);
+        });
       }
 
       function subscribeToTlSchedule(tlId) {
@@ -1127,8 +1222,19 @@
         db.collection('tl_schedules').doc(tlId).onSnapshot((doc) => {
           if (!doc.exists || doc.metadata.hasPendingWrites) return;
           const data = doc.data();
-          tlSchedulesMap[tlId] = data.slots || {};
-          localStorage.setItem(STORAGE_KEY_SCHED_PREFIX + tlId, JSON.stringify(tlSchedulesMap[tlId]));
+          const remoteSlots = (data && data.slots && typeof data.slots === 'object') ? { ...data.slots } : {};
+
+          // Preserve any local coordinates currently in-flight for this TL
+          const currentLocal = getTlSchedule(tlId);
+          if (inFlightCoordsByTl[tlId] && inFlightCoordsByTl[tlId].size > 0) {
+            inFlightCoordsByTl[tlId].forEach(pendingCoord => {
+              if (currentLocal[pendingCoord]) remoteSlots[pendingCoord] = currentLocal[pendingCoord];
+              else delete remoteSlots[pendingCoord];
+            });
+          }
+
+          tlSchedulesMap[tlId] = remoteSlots;
+          localStorage.setItem(STORAGE_KEY_SCHED_PREFIX + tlId, JSON.stringify(remoteSlots));
           // Only re-render the grid if the user is currently viewing this exact supervisor
           if (tlId === activeTlId) {
             renderMatrix();
@@ -1153,12 +1259,15 @@
             const previousActiveId = activeTlId;
             const prevTlObj = teamLeaders.find(t => t.id === previousActiveId);
             teamLeaders = data.teamLeaders;
+            rememberTlIds(teamLeaders);
             localStorage.setItem(STORAGE_KEY_ROSTER, JSON.stringify(teamLeaders));
             teamLeaders.forEach(tl => subscribeToTlSchedule(tl.id));
 
             // Keep current supervisor view untouched unless that supervisor was removed
             if (previousActiveId && teamLeaders.some(t => t.id === previousActiveId)) {
               activeTlId = previousActiveId;
+            } else if (prevTlObj && teamLeaders.some(t => t.name.trim().toLowerCase() === prevTlObj.name.trim().toLowerCase())) {
+              activeTlId = teamLeaders.find(t => t.name.trim().toLowerCase() === prevTlObj.name.trim().toLowerCase()).id;
             } else {
               activeTlId = teamLeaders.length > 0 ? teamLeaders[0].id : null;
             }
@@ -1211,7 +1320,6 @@
               lockedDates: Array.isArray(data.autoLockRules.lockedDates) ? data.autoLockRules.lockedDates : []
             };
             localStorage.setItem(STORAGE_KEY_RULES, JSON.stringify(autoLockRules));
-            // Remove any currently selected cells that fall on newly auto-locked dates without clearing other selections
             for (const coord of Array.from(selectedCells)) {
               const isoDate = coord.split('_')[0];
               if (isDateLockedByRule(isoDate)) selectedCells.delete(coord);
@@ -1235,7 +1343,7 @@
         return tlSchedulesMap[tlId];
       }
 
-      // Saves ONLY the specified supervisor's schedule & syncs only the changed coordinates!
+      // Saves ONLY the specified supervisor's schedule & atomically merges only the changed coordinates!
       function saveTlSchedule(tlId, changedCoords = null) {
         if (!tlId) return;
         const data = tlSchedulesMap[tlId] || {};
@@ -1260,6 +1368,7 @@
             }
             localStorage.setItem(STORAGE_KEY_ROSTER, JSON.stringify(teamLeaders));
           }
+          rememberTlIds(teamLeaders);
 
           // 2. Load per-TL schedules (and migrate any legacy v4 monolithic store once locally)
           const legacyS = localStorage.getItem(LEGACY_SCHED_KEY);
@@ -1306,7 +1415,7 @@
         }
       }
 
-      function saveRosterLocalOnly() { localStorage.setItem(STORAGE_KEY_ROSTER, JSON.stringify(teamLeaders)); }
+      function saveRosterLocalOnly() { rememberTlIds(teamLeaders); localStorage.setItem(STORAGE_KEY_ROSTER, JSON.stringify(teamLeaders)); }
       function saveLockState() { localStorage.setItem(STORAGE_KEY_LOCK, JSON.stringify(isScheduleLocked)); syncLockToFirebase(); }
       function saveRulesLocalOnly() { localStorage.setItem(STORAGE_KEY_RULES, JSON.stringify(autoLockRules)); }
 
@@ -1983,9 +2092,8 @@
 
               if (!isReplace && existingNames.has(rawName.toLowerCase())) continue;
 
-              // Preserve existing supervisor ID if name matches so plotted sessions remain completely intact
-              const existingTlMatch = teamLeaders.find(t => t.name.trim().toLowerCase() === rawName.toLowerCase());
-              const stableId = existingTlMatch ? existingTlMatch.id : ('tl_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5));
+              // Preserve existing or historical supervisor ID if name matches so plotted sessions remain completely intact
+              const stableId = getOrCreateStableTlId(rawName);
 
               newTls.push({
                 id: stableId,
@@ -2355,11 +2463,19 @@
         document.getElementById('btnCloseGuideModal').addEventListener('click', () => hideModal('guideModal'));
         document.getElementById('btnDoneGuideModal').addEventListener('click', () => hideModal('guideModal'));
 
-        // MANAGE TLS MODAL
+        // MANAGE TLS MODAL (Password-Gated with gmscc)
+        let pendingAdminAction = 'toggleLock';
+        function openAdminAuthGate(purpose, subtitleText) {
+          pendingAdminAction = purpose;
+          const subEl = document.getElementById('adminModalSubtitle');
+          if (subEl) subEl.textContent = subtitleText;
+          document.getElementById('inputAdminPassword').value = '';
+          showModal('adminLockModal');
+          setTimeout(() => document.getElementById('inputAdminPassword').focus(), 50);
+        }
+
         document.getElementById('btnManageTLs').addEventListener('click', () => {
-          resetTlForm();
-          renderRosterTable();
-          showModal('manageTlsModal');
+          openAdminAuthGate('manageTls', 'Enter the admin password to access Manage TLs.');
         });
         document.getElementById('btnCloseManageModal').addEventListener('click', () => hideModal('manageTlsModal'));
 
@@ -2414,7 +2530,7 @@
             }
 
             const newTl = { 
-              id: 'tl_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4), 
+              id: getOrCreateStableTlId(rawName), 
               name: rawName, 
               team: teamInput.value.trim() || 'General', 
               shift: shiftVal, 
@@ -2480,11 +2596,9 @@
           });
         });
 
-        // ADMIN LOCK
+        // ADMIN LOCK & SECURITY GATE
         document.getElementById('btnAdminLock').addEventListener('click', () => {
-          document.getElementById('inputAdminPassword').value = '';
-          showModal('adminLockModal');
-          setTimeout(() => document.getElementById('inputAdminPassword').focus(), 50);
+          openAdminAuthGate('toggleLock', 'Enter the admin password to toggle schedule lock state.');
         });
         document.getElementById('btnCloseAdminModal').addEventListener('click', () => hideModal('adminLockModal'));
         document.getElementById('inputAdminPassword').addEventListener('keydown', (e) => {
@@ -2492,13 +2606,19 @@
         });
         document.getElementById('btnSubmitAdminPassword').addEventListener('click', () => {
           if (document.getElementById('inputAdminPassword').value === adminPassword) {
-            isScheduleLocked = !isScheduleLocked;
-            saveLockState();
-            updateAdminLockUI();
-            clearCellSelection();
-            renderMatrix();
             hideModal('adminLockModal');
-            showToast(isScheduleLocked ? 'Schedule is now LOCKED (Read-Only Mode).' : 'Schedule is now UNLOCKED.', isScheduleLocked ? 'warning' : 'success');
+            if (pendingAdminAction === 'manageTls') {
+              resetTlForm();
+              renderRosterTable();
+              showModal('manageTlsModal');
+            } else {
+              isScheduleLocked = !isScheduleLocked;
+              saveLockState();
+              updateAdminLockUI();
+              clearCellSelection();
+              renderMatrix();
+              showToast(isScheduleLocked ? 'Schedule is now LOCKED (Read-Only Mode).' : 'Schedule is now UNLOCKED.', isScheduleLocked ? 'warning' : 'success');
+            }
           } else {
             showToast('Incorrect admin password.', 'error');
           }
